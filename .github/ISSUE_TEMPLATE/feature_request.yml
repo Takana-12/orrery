@@ -1,0 +1,17 @@
+name: 要望
+description: あったら便利な機能や改善を提案する
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 困っていること
+      description: いまのOrreryで、何がやりにくいか
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: こうなってほしい
+    validations:
+      required: true

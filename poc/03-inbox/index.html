@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control Room PoC</title>
+<style>
+  :root {
+    --bg: #f4f2ee; --panel: #fffdf9; --ink: #1d1b18; --muted: #6b665e; --line: #dcd6cb;
+    --accent: #1f5f4a; --accent-ink: #fff; --warn: #9a4a00; --warn-bg: #fff1dc; --danger: #a12a23;
+    --claude: #b4532a; --codex: #2a5db4; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161513; --panel: #1f1e1b; --ink: #ece8e1; --muted: #a09a90; --line: #37342f;
+      --accent: #5fbf9d; --accent-ink: #10231c; --warn: #f0b266; --warn-bg: #3a2a14; --danger: #f08a82;
+      --claude: #e59a78; --codex: #86aef0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 "Yu Gothic UI", "Segoe UI", system-ui, sans-serif; }
+  header { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--line); padding: 10px 20px; display: flex; gap: 18px; align-items: baseline; flex-wrap: wrap; z-index: 2; }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; letter-spacing: .04em; }
+  .stat { font-size: 13px; color: var(--muted); }
+  .stat b { font-size: 16px; color: var(--ink); font-variant-numeric: tabular-nums; margin-right: 2px; }
+  .stat.hot b { color: var(--warn); }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
+  h2 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 28px 0 8px; letter-spacing: .06em; }
+  .empty { border: 1px dashed var(--line); border-radius: 10px; padding: 28px; text-align: center; color: var(--muted); }
+  .empty strong { display: block; color: var(--ink); font-size: 17px; margin-bottom: 2px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+  .card.answering { border-left-color: var(--muted); opacity: .8; }
+  .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .badge { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; }
+  .badge.claude { color: var(--claude); } .badge.codex { color: var(--codex); }
+  .kind { background: var(--warn-bg); color: var(--warn); font-weight: 700; padding: 1px 8px; border-radius: 4px; }
+  .q { font-size: 17px; font-weight: 600; margin: 8px 0 6px; overflow-wrap: anywhere; }
+  .opt { display: flex; gap: 10px; align-items: flex-start; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; margin: 6px 0; cursor: pointer; }
+  .opt:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .opt small { display: block; color: var(--muted); }
+  .opt input { margin-top: 5px; }
+  input[type=text] { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; font: inherit; }
+  pre { font: 13px/1.5 var(--mono); background: color-mix(in srgb, var(--ink) 6%, transparent); border-radius: 8px; padding: 10px 12px; margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .kv { font-size: 12px; color: var(--muted); } .kv code { font-family: var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+  .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  button { font: inherit; padding: 7px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.deny { color: var(--danger); border-color: var(--danger); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  details { margin-top: 8px; font-size: 13px; } summary { cursor: pointer; color: var(--muted); }
+  .row { display: grid; grid-template-columns: 74px 1fr auto; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 13px; align-items: baseline; }
+  .row .state { font-weight: 600; } .row .txt { color: var(--muted); overflow-wrap: anywhere; }
+  .state.waiting_for_user { color: var(--warn); } .state.error, .state.interrupted { color: var(--danger); } .state.turn_finished { color: var(--accent); }
+  .err { color: var(--danger); font-size: 13px; }
+  footer { margin-top: 36px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  footer button { font-size: 12px; padding: 4px 10px; margin: 3px 4px 3px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CONTROL ROOM <span style="color:var(--muted);font-weight:400">PoC</span></h1>
+  <span class="stat" id="s-attn"><b>0</b>要対応</span>
+  <span class="stat"><b id="s-run">0</b>実行中</span>
+  <span class="stat"><b id="s-done">0</b>ターン終了</span>
+  <span class="stat"><b id="s-bad">0</b>異常・中断</span>
+  <span class="stat" id="conn">接続中…</span>
+</header>
+<main>
+  <h2>要対応 INBOX</h2>
+  <div id="inbox"></div>
+
+  <h2>処理済み・失効した要求</h2>
+  <div id="settled"></div>
+
+  <h2>セッション</h2>
+  <div id="sessions"></div>
+
+  <footer>
+    <div>PoC用の操作（本物のClaude Code / Codexを起動します）:</div>
+    <div id="presets"></div>
+    <div>ターン終了 ≠ タスク完了。このPoCは「返答が終わった」ことだけを表示し、完了判定はしません。</div>
+  </footer>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, ...kids) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') n.className = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else if (v !== null && v !== undefined && v !== false) n.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids.flat(Infinity)) if (kid !== null && kid !== undefined && kid !== false) n.append(kid); // text is appended as text, never HTML
+  return n;
+};
+const KIND = { user_question: '質問への回答待ち', permission_approval: '承認待ち' };
+const STATE = { starting: '起動中', running: '実行中', waiting_for_user: '人間待ち', turn_finished: 'ターン終了', interrupted: '中断', error: '異常' };
+const DECISION = { accept: '許可する', acceptForSession: 'このセッション中は許可', decline: '拒否する', cancel: '拒否してターンを中止' };
+const drafts = new Map(); // itemId -> { [questionId]: { picked:Set, free:string } } survives re-render
+const errors = new Map();
+let rendered = '';
+
+async function post(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+  return { status: r.status, body: await r.json().catch(() => ({})) };
+}
+async function sendAnswer(item, answer) {
+  const r = await post(`/api/items/${item.id}/answer`, answer);
+  if (r.status !== 200) errors.set(item.id, `送信されませんでした: ${r.body.error ?? r.status}`); else errors.delete(item.id);
+  rendered = ''; refresh();
+}
+
+function questionCard(item) {
+  const draft = drafts.get(item.id) ?? drafts.set(item.id, {}).get(item.id);
+  const blocks = item.questions.map((q, qi) => {
+    const d = draft[q.id] ?? (draft[q.id] = { picked: new Set(), free: '' });
+    const type = q.multiSelect ? 'checkbox' : 'radio';
+    return el('div', {},
+      el('div', { class: 'q' }, q.question),
+      q.options.map((o) => {
+        const input = el('input', { type, name: `${item.id}-${qi}`, checked: d.picked.has(o.label), disabled: item.status !== 'pending' });
+        input.addEventListener('change', () => { if (!q.multiSelect) d.picked.clear(); input.checked ? d.picked.add(o.label) : d.picked.delete(o.label); });
+        return el('label', { class: 'opt' }, input, el('span', {}, o.label, el('small', {}, o.description ?? '')));
+      }),
+      q.allowFreeText && (() => {
+        const t = el('input', { type: 'text', placeholder: '別の回答を自由入力（入力すると選択肢より優先）', value: d.free, disabled: item.status !== 'pending' });
+        t.addEventListener('input', () => { d.free = t.value; });
+        return t;
+      })(),
+    );
+  });
+  const submit = () => {
+    const answers = {};
+    for (const q of item.questions) {
+      const d = draft[q.id];
+      const v = d.free.trim() ? [d.free.trim()] : [...d.picked];
+      if (!v.length) { errors.set(item.id, '未回答の質問があります'); rendered = ''; return refresh(); }
+      answers[q.id] = v;
+    }
+    sendAnswer(item, { answers });
+  };
+  return [blocks, el('div', { class: 'actions' }, el('button', { class: 'primary', onclick: submit, disabled: item.status !== 'pending' }, '回答を送信'))];
+}
+
+function approvalCard(item) {
+  const a = item.approval;
+  return [
+    el('div', { class: 'q' }, item.title),
+    el('pre', {}, a.command ?? '(コマンド情報なし — 詳細を確認してください)'),
+    el('div', { class: 'kv' }, '実行場所: ', el('code', {}, a.cwd ?? '不明'), a.reason ? ` ／ 理由: ${a.reason}` : ''),
+    el('div', { class: 'actions' }, a.decisions.map((d) =>
+      el('button', { class: d === 'accept' ? 'primary' : d === 'decline' || d === 'cancel' ? 'deny' : '', disabled: item.status !== 'pending', onclick: () => sendAnswer(item, { decision: d }) }, DECISION[d] ?? d))),
+  ];
+}
+
+function card(item) {
+  const ageMin = Math.floor((Date.now() - item.createdAt) / 60000);
+  return el('section', { class: `card ${item.status}` },
+    el('div', { class: 'meta' },
+      el('span', { class: 'kind' }, item.status === 'answering' ? '送信済み・受領確認待ち' : KIND[item.type] ?? item.type),
+      el('span', { class: `badge ${item.provider}` }, item.provider === 'claude' ? 'Claude Code' : 'Codex'),
+      el('span', {}, `${item.projectName} ／ ${item.task}`),
+      el('span', {}, ageMin < 1 ? 'たった今' : `${ageMin}分前`)),
+    item.type === 'user_question' ? questionCard(item) : approvalCard(item),
+    errors.has(item.id) && el('div', { class: 'err' }, errors.get(item.id)),
+    el('details', {}, el('summary', {}, '詳細（発生元ID・生データ）'),
+      el('div', { class: 'kv' }, 'provider session: ', el('code', {}, item.sourceSessionId ?? '-'), ' ／ request id: ', el('code', {}, item.sourceRequestId)),
+      el('pre', {}, JSON.stringify(item.raw, null, 2))),
+  );
+}
+
+function render(state) {
+  $('s-attn').className = 'stat' + (state.counts.needsAttention ? ' hot' : '');
+  $('s-attn').firstChild.textContent = state.counts.needsAttention;
+  $('s-run').textContent = state.counts.running;
+  $('s-done').textContent = state.counts.finished;
+  $('s-bad').textContent = state.counts.problems;
+  document.title = state.counts.needsAttention ? `(${state.counts.needsAttention}) 要対応 — Control Room` : 'Control Room PoC';
+
+  const open = state.items.filter((i) => i.status === 'pending' || i.status === 'answering');
+  $('inbox').replaceChildren(...(open.length ? open.map(card) : [el('div', { class: 'empty' }, el('strong', {}, '対応が必要なものはありません'), '質問や承認要求が来たらここに表示されます。')]));
+
+  const settled = state.items.filter((i) => i.status === 'resolved' || i.status === 'expired').reverse();
+  $('settled').replaceChildren(...(settled.length ? settled.map((i) => el('div', { class: 'row' },
+    el('span', { class: 'state ' + (i.status === 'expired' ? 'error' : 'turn_finished') }, i.status === 'expired' ? '失効' : '受領済み'),
+    el('span', {}, `${i.projectName} ／ ${i.title}`, el('div', { class: 'txt' }, i.status === 'expired' ? `回答不可: ${i.expiredReason}` : `回答: ${JSON.stringify(i.response.answer)} （確認 ${i.acknowledgement.evidence.via}, ${i.acknowledgement.latencyMs}ms）`)),
+    el('span', { class: `badge ${i.provider}` }, i.provider))) : [el('div', { class: 'txt', style: 'font-size:13px;color:var(--muted)' }, 'まだありません')]));
+
+  $('sessions').replaceChildren(...state.sessions.map((s) => el('div', { class: 'row' },
+    el('span', { class: `state ${s.status}` }, STATE[s.status] ?? '状況不明'),
+    el('span', {}, `${s.projectName} ／ ${s.task}`, el('div', { class: 'txt' }, s.error ?? s.lastText ?? '')),
+    el('span', {}, el('span', { class: `badge ${s.provider}` }, s.provider), ' ',
+      ['running', 'waiting_for_user'].includes(s.status) && el('button', { onclick: () => post(`/api/sessions/${s.id}/interrupt`), style: 'font-size:12px;padding:2px 8px' }, '中断')))));
+}
+
+let last = null;
+function refresh() { if (last) render(last); }
+function onState(state) {
+  // Re-render only when something visible changed, so in-progress input is not disturbed needlessly.
+  const sig = JSON.stringify([state.counts, state.items.map((i) => [i.id, i.status]), state.sessions.map((s) => [s.id, s.status, s.lastText, s.error])]);
+  last = state;
+  if (sig !== rendered) { rendered = sig; render(state); }
+}
+const es = new EventSource('/api/events');
+es.onmessage = (e) => { $('conn').textContent = ''; onState(JSON.parse(e.data)); };
+es.onerror = () => { $('conn').textContent = '切断されました — 状態は最新ではない可能性があります'; };
+
+fetch('/api/presets').then((r) => r.json()).then((names) => {
+  $('presets').replaceChildren(...names.map((n) => el('button', { onclick: () => post('/api/sessions', { preset: n }) }, `+ ${n}`)));
+});
+</script>
+</body>
+</html>

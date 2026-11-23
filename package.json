@@ -1,0 +1,38 @@
+{
+  "name": "orrery",
+  "private": true,
+  "version": "0.4.0",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "imports": {
+    "#core": "./packages/core/src/index.ts",
+    "#provider-claude": "./packages/provider-claude/src/index.ts",
+    "#provider-codex": "./packages/provider-codex/src/index.ts",
+    "#host-windows": "./packages/host-windows/src/index.ts"
+  },
+  "scripts": {
+    "start": "node packages/server/src/main.ts",
+    "test": "node --test \"packages/**/*.test.ts\" \"packages/**/*.test.mjs\"",
+    "typecheck": "tsc --noEmit",
+    "e2e": "node packages/server/test/e2e.ts && node packages/server/test/e2e-supervisors.ts",
+    "app": "electron .",
+    "icons": "node apps/desktop/make-icons.mjs",
+    "package": "node apps/desktop/package.mjs",
+    "install-app": "npm run package && powershell -NoProfile -ExecutionPolicy Bypass -File apps/desktop/install-shortcuts.ps1"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.330",
+    "koffi": "^3.3.8"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "@types/node": "^24.0.0",
+    "electron": "^45.4.1",
+    "typescript": "^5.9.0"
+  },
+  "main": "apps/desktop/main.mjs",
+  "productName": "Orrery"
+}

@@ -1,0 +1,235 @@
+{
+  "ranAt": "2026-11-22T16:21:06.595Z",
+  "results": [
+    {
+      "id": "M1",
+      "name": "Codex model list comes from the provider and marks a default",
+      "pass": true,
+      "detail": [
+        "gpt-6.2-sol",
+        "gpt-6.2-astra",
+        "gpt-6.1-terra",
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "gpt-6-sol"
+      ]
+    },
+    {
+      "id": "M2",
+      "name": "Claude model list comes from the provider",
+      "pass": true,
+      "detail": [
+        "default",
+        "opus",
+        "claude-fable-5-2",
+        "sonnet",
+        "haiku",
+        "claude-fable-5-1",
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-5"
+      ]
+    },
+    {
+      "id": "N1",
+      "name": "work started without a name gets a short generated one",
+      "pass": true,
+      "detail": {
+        "provisional": "このプロジェクトのハーネスの合言葉を、短い日本語の1文で教えてください。コマンド",
+        "named": "ハーネスの合言葉の確認"
+      }
+    },
+    {
+      "id": "N2",
+      "name": "the human can rename it",
+      "pass": true
+    },
+    {
+      "id": "Q1",
+      "name": "with a limit of 1, one session works and the others queue in order",
+      "pass": true,
+      "detail": {
+        "Q2": "queued",
+        "Q3": 2,
+        "blockedBy": "slots"
+      }
+    },
+    {
+      "id": "Q2",
+      "name": "queued work has not started any provider session",
+      "pass": true
+    },
+    {
+      "id": "Q3",
+      "name": "queued work can be cancelled before it starts",
+      "pass": true
+    },
+    {
+      "id": "Q4",
+      "name": "the next queued session starts by itself when a slot frees",
+      "pass": true
+    },
+    {
+      "id": "E1",
+      "name": "variable is listed by name only; the value is not in the state or stored in plain text",
+      "pass": true,
+      "detail": [
+        {
+          "name": "CR_BUILD_CHANNEL",
+          "length": 21,
+          "updatedAt": 1795364409047
+        },
+        {
+          "name": "CR_SECRET_TOKEN",
+          "length": 18,
+          "updatedAt": 1795364409037
+        }
+      ]
+    },
+    {
+      "id": "E2",
+      "name": "revealing a value is an explicit request",
+      "pass": true
+    },
+    {
+      "id": "E3",
+      "name": "Codex: the variable reaches the agent command, and its value is masked everywhere it is recorded",
+      "pass": true,
+      "detail": "CHANNEL=[env:CR_BUILD_CHANNEL]"
+    },
+    {
+      "id": "E4",
+      "name": "Claude: the variable reaches the agent command, and its value is masked everywhere it is recorded",
+      "pass": true,
+      "detail": "CHANNEL=[env:CR_BUILD_CHANNEL]"
+    },
+    {
+      "id": "E5",
+      "name": "neither value appears anywhere in the state or the database file",
+      "pass": true
+    },
+    {
+      "id": "E6",
+      "name": "a variable can be deleted",
+      "pass": true
+    },
+    {
+      "id": "D1",
+      "name": "the agent said it was done, but the check failed: recorded as failed with the evidence",
+      "pass": true,
+      "detail": "(transient state not sampled; transcript has the record)"
+    },
+    {
+      "id": "D2",
+      "name": "the failure was handed back to the agent once, and the agent fixed it",
+      "pass": true,
+      "detail": {
+        "fixRounds": 1
+      }
+    },
+    {
+      "id": "D3",
+      "name": "after the fix the check passes: completion candidate with evidence, not yet accepted",
+      "pass": true,
+      "detail": {
+        "command": "node check.js",
+        "ok": true,
+        "exitCode": 0,
+        "outputTail": "CHECK PASSED",
+        "at": 1795364439350,
+        "uncommittedFiles": null
+      }
+    },
+    {
+      "id": "D4",
+      "name": "accepting is a human act; accepted work is put away and can be reopened",
+      "pass": true
+    },
+    {
+      "id": "D5",
+      "name": "reopen brings it back as a candidate",
+      "pass": true
+    },
+    {
+      "id": "D6",
+      "name": "failed check without auto-fix: shown as needing a fix with exit code and output; accept is refused",
+      "pass": true,
+      "detail": {
+        "exit": 3,
+        "accept": 409
+      }
+    },
+    {
+      "id": "D7",
+      "name": "the check can be re-run by hand",
+      "pass": true
+    },
+    {
+      "id": "R1",
+      "name": "a question the agent asked in plain prose becomes an inbox question with its choices",
+      "pass": true,
+      "detail": {
+        "question": "実装方針が2つあります。どちらにしますか？",
+        "labels": [
+          "A案: 既存テーブルに列を追加",
+          "B案: 新しいテーブルを作る"
+        ]
+      }
+    },
+    {
+      "id": "R2",
+      "name": "the chosen answer goes back to the agent as the next message",
+      "pass": true,
+      "detail": "B案: 新しいテーブルを作る"
+    },
+    {
+      "id": "H1",
+      "name": "work that only the human can do is listed as steps, with the command verbatim",
+      "pass": true,
+      "detail": [
+        {
+          "title": "PRをマージする",
+          "detail": null,
+          "command": "node -e \"console.log('MERGED_'+(40+2))\"",
+          "done": false
+        },
+        {
+          "title": "本番のトップページで表示を確認する",
+          "detail": null,
+          "command": null,
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "H2",
+      "name": "a command the agent never wrote is refused",
+      "pass": true,
+      "detail": "このコマンドは、この作業でエージェントが書いたものではありません"
+    },
+    {
+      "id": "H3",
+      "name": "clicking the command runs it in the work folder; its step is ticked and the result recorded",
+      "pass": true,
+      "detail": {
+        "ok": true,
+        "exitCode": 0,
+        "output": "MERGED_42"
+      }
+    },
+    {
+      "id": "H4",
+      "name": "ticking the last step completes the task (and puts it away)",
+      "pass": true
+    },
+    {
+      "id": "P1",
+      "name": "stored data can be measured; purging removes conversation records of put-away work but keeps the work and its outcome",
+      "pass": true,
+      "detail": {
+        "bytes": 102400,
+        "removedFrom": 1,
+        "freed": 4096
+      }
+    }
+  ]
+}

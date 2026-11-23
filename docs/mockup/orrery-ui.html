@@ -1,0 +1,3139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Orrery UI mock-up</title>
+<style>
+/* Orrery — a quiet instrument.
+   One surface. Things are separated by space first, a hairline second, never by a box around each one.
+   Colour means something or it is not used:
+     brass (--acc)  = your move: the primary action, and whatever is waiting for you
+     red            = a fault
+   Everything else is ink on the surface; states are told apart by the shape of their icon.
+   The only raised surfaces are the places you type into, and menus.
+   Two radii: --r for those raised surfaces and buttons, --r-s for things inside them. */
+:root {
+  --bg: #12141d; --raise: #1b1e2b; --ink: #e4e6ee; --ink-2: #8a8fa3; --line: #292d3c;
+  --acc: #d9b45f; --on-acc: #1b1608; --red: #f07a7a; --green: #6fca97;
+  --tint: rgb(228 230 238 / .06); --tint-2: rgb(228 230 238 / .11);
+  --shadow: 0 10px 28px rgb(0 0 0 / .45);
+  --r: 8px; --r-s: 5px;
+  --ui: "Bahnschrift", "BIZ UDPGothic", "Yu Gothic UI", "Meiryo", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", Consolas, "BIZ UDGothic", monospace;
+  --rail-w: 292px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f1f2f5; --raise: #ffffff; --ink: #181b27; --ink-2: #5f6578; --line: #d5d8e1;
+    --acc: #8a6914; --on-acc: #ffffff; --red: #b93838; --green: #1c7a4b;
+    --tint: rgb(24 27 39 / .05); --tint-2: rgb(24 27 39 / .1);
+    --shadow: 0 10px 28px rgb(24 27 39 / .16);
+  }
+}
+* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--ui); accent-color: var(--ink); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.grow { flex: 1; min-width: 0; }
+svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+svg.i.s { width: 15px; height: 15px; }
+svg.i.l { width: 20px; height: 20px; }
+.amber { color: var(--acc); } .red { color: var(--red); } .dim, .blue, .green { color: var(--ink-2); } .ion { color: var(--ink); }
+@keyframes turn { to { transform: rotate(360deg); } }
+svg.spin { animation: turn 1.4s linear infinite; color: var(--ink); }
+
+/* ---------- the orrery: the mark, and the screen you see when nothing is waiting for you ---------- */
+svg.orrery { flex: none; overflow: visible; }
+.orrery .orbit { fill: none; stroke: var(--line); stroke-width: .7; }
+.orrery .sun { fill: var(--acc); }
+.orrery .planet { fill: var(--ink); }
+.orrery .arm { transform-origin: 50px 50px; }
+.orrery.live .a0 { animation: turn 9s linear infinite; }
+.orrery.live .a1 { animation: turn 17s linear infinite; }
+.orrery.live .a2 { animation: turn 29s linear infinite; }
+.orrery.mark { width: 24px; height: 24px; }
+.orrery.mark .orbit { stroke: var(--ink-2); stroke-width: 2.5; }
+@media (prefers-reduced-motion: reduce) { svg.spin, .orrery .arm { animation: none !important; } }
+
+/* ---------- controls ---------- */
+button, input, textarea { font: inherit; color: inherit; }
+button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 6px 12px; border-radius: var(--r); border: 1px solid var(--line); background: transparent; cursor: pointer; }
+button:hover:not(:disabled) { background: var(--tint); }
+button.primary { background: var(--acc); color: var(--on-acc); border-color: var(--acc); font-weight: 700; }
+button.primary:hover:not(:disabled) { background: var(--acc); filter: brightness(1.08); }
+button.danger { color: var(--red); }
+button.quiet { border-color: transparent; padding: 6px 8px; color: var(--ink-2); }
+button.quiet:hover:not(:disabled) { color: var(--ink); }
+button.ib { width: 32px; height: 32px; padding: 0; justify-content: center; flex: none; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+input[type=text], input[type=password], textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raise); }
+input[type=text]:focus-visible, input[type=password]:focus-visible { outline: none; border-color: var(--ink-2); }
+textarea { resize: vertical; min-height: 76px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: hidden; }
+::placeholder { color: var(--ink-2); opacity: .8; }
+pre { font: 13px/1.5 var(--mono); margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+kbd { font: 11px/1.6 var(--mono); color: var(--ink-2); border: 1px solid var(--line); border-radius: var(--r-s); padding: 0 5px; flex: none; }
+.banner { color: var(--acc); padding: 8px 16px; font-size: 13px; border-bottom: 1px solid var(--line); }
+
+/* chips: every "choose one" control is a chip that opens a menu right where it stands. No outline until touched. */
+button.chip { padding: 5px 8px; border-color: transparent; max-width: 100%; min-height: 32px; }
+button.chip[aria-expanded=true] { background: var(--tint-2); }
+button.chip .v { overflow: hidden; text-overflow: ellipsis; max-width: 22ch; }
+button.chip .v:empty { display: none; }
+button.chip .ic { display: inline-flex; }
+button.chip > svg:first-child, button.chip .ic { color: var(--ink-2); }
+button.chip .caret { color: var(--ink-2); width: 12px; height: 12px; }
+button.chip[aria-pressed=true] { background: var(--tint-2); }
+button.chip[aria-pressed=true] > svg { color: var(--acc); }
+
+.menu { position: fixed; inset: auto; margin: 0; min-width: 232px; max-width: min(380px, calc(100vw - 16px)); max-height: min(440px, calc(100vh - 16px)); overflow: auto; padding: 5px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raise); color: var(--ink); box-shadow: var(--shadow); font: 14px/1.5 var(--ui); }
+/* a long list scrolls inside the menu, so whatever follows it (the effort gauge) stays in view */
+.menu:popover-open { display: flex; flex-direction: column; }
+.menu > * { flex: none; }
+.menu > .menu-scroll { flex: 0 1 auto; min-height: 0; overflow: auto; }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 9px; }
+.menu-item { width: 100%; display: flex; gap: 10px; align-items: center; text-align: left; border: 0; border-radius: var(--r-s); padding: 7px 9px; }
+.menu-item:hover:not(:disabled), .menu-item:focus-visible { background: var(--tint-2); outline: none; }
+.menu-item .tx { flex: 1; min-width: 0; display: grid; }
+.menu-item .tx span { overflow: hidden; text-overflow: ellipsis; }
+.menu-item .sub { font: 11.5px/1.4 var(--mono); color: var(--ink-2); }
+.menu-item kbd { border: 0; padding: 0; font-size: 12px; min-width: 15px; text-align: center; }
+
+/* effort: a row of rising bars, in the menu (clickable) and on the chip (read-only) */
+.fx { display: flex; align-items: center; gap: 10px; padding: 6px 9px 7px; }
+.fx-bars { display: flex; align-items: flex-end; gap: 4px; height: 24px; flex: 1; }
+.fx-bar { flex: 1; max-width: 26px; min-width: 0; padding: 0; height: 6px; border: 0; border-radius: 2px; background: var(--line); }
+.fx-bar:hover:not(:disabled) { background: var(--ink-2); }
+.fx-bar.on, .fx-bar.on:hover:not(:disabled) { background: var(--ink); }
+.fx-bar:nth-child(2) { height: 10px; } .fx-bar:nth-child(3) { height: 14px; } .fx-bar:nth-child(4) { height: 18px; } .fx-bar:nth-child(5) { height: 21px; } .fx-bar:nth-child(n+6) { height: 24px; }
+.fx-word { min-width: 4.5em; text-align: right; }
+.fx-mini { display: inline-flex; align-items: flex-end; gap: 2px; height: 13px; }
+.fx-mini i { width: 3px; height: 4px; border-radius: 1px; background: var(--ink-2); opacity: .45; }
+.fx-mini i.on { background: var(--ink); opacity: 1; }
+.fx-mini i:nth-child(2) { height: 6px; } .fx-mini i:nth-child(3) { height: 8px; } .fx-mini i:nth-child(4) { height: 10px; } .fx-mini i:nth-child(5) { height: 11.5px; } .fx-mini i:nth-child(n+6) { height: 13px; }
+
+/* the composer: the text, and under it a bar with its controls; the go button is at the right */
+.composer { border: 1px solid var(--line); border-radius: var(--r); background: var(--raise); }
+.composer:focus-within { border-color: var(--ink-2); }
+.composer.dropping { border-style: dashed; border-color: var(--ink); }
+.composer textarea { display: block; border: 0; border-radius: var(--r); background: transparent; padding: 12px 14px 6px; resize: none; min-height: 52px; max-height: 240px; outline: none; }
+.composer .bar { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; padding: 4px 8px 8px; }
+.composer .bar > .primary { margin-left: auto; }
+.composer .bar .note { display: inline-flex; gap: 6px; align-items: center; padding-left: 6px; }
+.composer .folder { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; padding: 8px 8px 0; }
+.composer .folder input { background: transparent; }
+.attached { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 0 6px; }
+.att { display: inline-flex; align-items: center; gap: 6px; padding: 3px 2px 3px 6px; border-radius: var(--r-s); background: var(--tint); font-size: 13px; max-width: 100%; }
+.att img { width: 28px; height: 28px; object-fit: cover; border-radius: 3px; flex: none; }
+.att .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 24ch; }
+.att button { padding: 3px; border-radius: var(--r-s); }
+
+/* ---------- frame ---------- */
+.app { display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); height: 100%; }
+.rail { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+.main { min-height: 0; overflow: auto; }
+.pad { max-width: 820px; margin: 0 auto; padding: 22px 28px 60px; }
+
+/* ---------- rail: a plain list. Rows are parted by hairlines that stop short of both edges. ---------- */
+.rail-top { padding: 12px 10px 8px 16px; display: flex; align-items: center; gap: 9px; }
+.brand { font-weight: 600; font-size: 17px; letter-spacing: .12em; flex: 1; }
+.tally { display: flex; gap: 2px; margin: 0 6px 4px; font-variant-numeric: tabular-nums; }
+.tally > * { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 0; border: 0; border-radius: var(--r-s); }
+.tally b { font-size: 15px; font-weight: 600; line-height: 1.2; }
+.tally .zero { opacity: .4; }
+.tally .zero svg { color: inherit; }
+.tally > :not(.zero):has(.amber) b { color: var(--acc); }
+.tally > :not(.zero):has(.red) b { color: var(--red); }
+.home[aria-current=page] { background: var(--tint-2); }
+.rail-scroll { flex: 1; overflow: auto; padding: 0 6px 10px; }
+.group { margin: 14px 10px 2px; font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.strip { position: relative; width: 100%; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 0 8px; align-items: center; text-align: left; padding: 8px 10px; border: 0; border-radius: var(--r-s); white-space: normal; }
+.strip + .strip::before { content: ""; position: absolute; top: 0; left: 10px; right: 10px; border-top: 1px solid var(--line); }
+.strip[aria-current=page] { background: var(--tint-2); }
+.strip:hover::before, .strip:hover + .strip::before, .strip[aria-current=page]::before, .strip[aria-current=page] + .strip::before { border-color: transparent; }
+.strip .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip .sub { grid-column: 2 / 4; font-size: 12px; color: var(--ink-2); display: flex; gap: 6px; align-items: center; min-width: 0; }
+.strip .sub .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip .sub .age { margin-left: auto; flex: none; font-variant-numeric: tabular-nums; }
+.strip .now { grid-column: 2 / 4; font: 11.5px/1.5 var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; gap: 4px; align-items: center; }
+.strip .now.quiet { color: var(--acc); }
+.new-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); }
+.more { font-size: 12px; }
+.rail-foot { margin: 0 16px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
+.rail-foot .grow { display: flex; align-items: center; gap: 6px; }
+.rail-empty { padding: 18px 10px; font-size: 13px; color: var(--ink-2); }
+
+/* ---------- headings ---------- */
+h1 { font-size: 18px; font-weight: 600; margin: 0 0 14px; display: flex; align-items: center; gap: 9px; }
+h1 > svg { color: var(--ink-2); }
+h1 .n { font-variant-numeric: tabular-nums; }
+h2 { font-size: 14px; font-weight: 600; margin: 30px 0 4px; display: flex; align-items: center; gap: 8px; }
+.note { font-size: 12.5px; color: var(--ink-2); }
+.err { color: var(--red); font-size: 13px; }
+.err:empty { display: none; }
+
+/* ---------- nothing waiting: the one place the orrery is drawn large ---------- */
+.clear { display: grid; justify-items: center; gap: 14px; padding: 44px 24px 36px; }
+.clear .orrery { width: 190px; height: 190px; }
+.clear strong { font-size: 16px; font-weight: 600; }
+.clear .counts { display: flex; gap: 16px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.clear .counts span { display: inline-flex; gap: 6px; align-items: center; }
+
+/* ---------- a request: a block between two hairlines, not a card ---------- */
+.ticket, .steps { border-top: 1px solid var(--line); padding: 14px 0 18px; }
+.ticket.answering { opacity: .7; }
+.ticket:focus-visible { outline-offset: 6px; }
+.ticket-head { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); min-width: 0; }
+.ticket-head .kind { color: var(--acc); font-weight: 600; display: inline-flex; gap: 6px; align-items: center; flex: none; }
+.ticket-head .where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-head .age { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.ask, .clear strong, .result .t, h1 { word-break: auto-phrase; text-wrap: pretty; }
+.narrow-only { display: none; margin-left: auto; font-size: 14px; }
+.ask { font-size: 17px; font-weight: 600; line-height: 1.45; margin: 8px 0 8px; overflow-wrap: anywhere; }
+.ask .opt-mark { font-size: 12.5px; font-weight: 400; color: var(--ink-2); margin-left: 6px; }
+.choice { display: flex; gap: 10px; align-items: flex-start; padding: 7px 10px; margin: 0 -10px; border-radius: var(--r-s); cursor: pointer; }
+.choice:hover { background: var(--tint); }
+.choice:has(input:checked) { background: var(--tint-2); }
+.choice input { margin-top: 5px; flex: none; }
+.choice .lab { flex: 1; min-width: 0; }
+.choice small { display: block; color: var(--ink-2); }
+.ticket input[type=text], .ticket input[type=password] { margin-top: 8px; }
+.subject { background: var(--raise); border-radius: var(--r-s); padding: 10px 12px; margin: 6px 0; max-height: 320px; overflow: auto; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--ink-2); margin: 6px 0 0; }
+.facts span { display: inline-flex; gap: 5px; align-items: center; min-width: 0; }
+.facts code { font-family: var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+/* actions: refusals sit at the left, whatever moves the work forward sits at the right edge */
+.acts { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
+details.raw { margin-top: 10px; font-size: 13px; }
+details.raw summary { cursor: pointer; color: var(--ink-2); }
+details.raw .subject { margin-top: 6px; }
+.diff { font: 12.5px/1.5 var(--mono); border-radius: var(--r-s); margin: 6px 0; max-height: 340px; overflow: auto; background: var(--raise); }
+.diff .file { padding: 4px 10px; background: var(--raise); border-bottom: 1px solid var(--line); font-weight: 700; position: sticky; top: 0; display: flex; gap: 6px; align-items: center; }
+.diff .ln { padding: 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff .add { background: color-mix(in srgb, var(--green) 16%, transparent); }
+.diff .del { background: color-mix(in srgb, var(--red) 16%, transparent); }
+.diff .hunk { color: var(--ink-2); }
+
+/* ---------- result rows (finished work not yet looked at): a list, parted by hairlines ---------- */
+.result { width: 100%; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 2px 10px; text-align: left; padding: 10px 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; white-space: normal; align-items: start; }
+.result > svg { margin-top: 3px; }
+.result .t { font-weight: 600; }
+.result .x { grid-column: 2; color: var(--ink-2); font-size: 13.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.result .age { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+/* ---------- session screen ---------- */
+.session { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+.s-head { padding: 10px 16px 9px 20px; border-bottom: 1px solid var(--line); }
+.s-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.s-title h1 { margin: 0; font-size: 17px; min-width: 0; flex: 0 1 auto; }
+.s-title h1 span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s-title .back { display: none; }
+.s-state { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; padding: 0 8px; font-variant-numeric: tabular-nums; }
+.s-acts { display: flex; gap: 2px; align-items: center; }
+.s-acts .ib:not(.primary) { border-color: transparent; color: var(--ink-2); }
+.s-acts .ib.danger { color: var(--red); }
+.s-acts .primary { padding: 0 10px; height: 32px; margin-left: 6px; }
+.s-meta { display: flex; flex-wrap: wrap; gap: 3px 16px; margin-top: 4px; font-size: 12.5px; color: var(--ink-2); align-items: center; }
+.s-meta span { display: inline-flex; gap: 5px; align-items: center; min-width: 0; max-width: 100%; }
+.s-meta .path { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch; }
+.s-body { overflow: auto; padding: 16px 20px 8px; }
+.s-body .inner { max-width: 780px; margin: 0 auto; }
+.msg { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 10px; margin-bottom: 14px; }
+.msg > svg { margin-top: 3px; color: var(--ink-2); }
+.msg .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg .when { font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.msg.user .text { background: var(--raise); border-radius: var(--r); padding: 8px 12px; }
+.msg.tool, .msg.system { margin-bottom: 6px; }
+.msg.tool .text, .msg.system .text, .msg.tool summary { font: 12.5px/1.5 var(--mono); color: var(--ink-2); }
+.msg.tool summary { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg.tool details[open] summary { white-space: pre-wrap; }
+.msg.tool pre { margin-top: 4px; padding: 8px 10px; background: var(--raise); border-radius: var(--r-s); max-height: 300px; overflow: auto; }
+.s-jump { position: sticky; bottom: 6px; display: flex; justify-content: center; }
+.s-jump button { background: var(--raise); }
+.s-foot { padding: 4px 20px 14px; max-height: 70vh; overflow: auto; }
+.s-foot .inner { max-width: 780px; margin: 0 auto; }
+.s-foot .composer { margin-top: 4px; }
+
+/* ---------- forms & lists ---------- */
+form.new { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 2px 10px; padding: 9px 0; border-top: 1px solid var(--line); align-items: center; }
+.row .x { grid-column: 2; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.row > button.quiet { justify-content: flex-start; color: var(--ink); min-width: 0; }
+
+/* ---------- verdicts, settings ---------- */
+.verdict { margin-top: 8px; }
+.verdict:empty { display: none; }
+.verdict-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.verdict-line > button:first-of-type { margin-left: auto; }
+.verdict-line code, .row code { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+.verdict-line button { padding: 4px 10px; font-size: 13px; }
+.verdict details.raw { margin-top: 6px; }
+.result.verdict-row { align-items: center; }
+.result.verdict-row > svg { margin-top: 0; }
+.result.verdict-row .t { justify-content: flex-start; padding: 2px 4px; font-weight: 600; color: var(--ink); white-space: normal; text-align: left; }
+.result.verdict-row .x { grid-column: 2 / 4; }
+.stepper { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; }
+.stepper .big { font-size: 24px; font-weight: 600; min-width: 2ch; text-align: center; font-variant-numeric: tabular-nums; }
+.stepper input { width: 9ch; }
+.row.env .env-acts { display: flex; gap: 4px; }
+.env-new { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 8px; margin-top: 8px; }
+button.quiet.danger { color: var(--red); }
+
+/* ---------- sign-in notice, usage ---------- */
+.auth-box:empty { display: none; }
+.auth-box { padding: 0 16px 8px; }
+.auth-alert { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); }
+.auth-alert strong { display: block; }
+.auth-alert .acts { margin-top: 8px; }
+.auth-alert .note { display: flex; gap: 6px; align-items: flex-start; }
+.svc { border-top: 1px solid var(--line); padding: 16px 0 18px; }
+.svc h2 { margin: 0 0 10px; }
+.svc h2 .note, .svc h2 .red { font-weight: 400; margin-left: auto; font-size: 13px; }
+.limit { margin: 10px 0; }
+.limit-head { display: flex; gap: 10px; align-items: baseline; font-size: 13.5px; }
+.limit-head .note { margin-left: auto; }
+.bar-meter { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 5px; }
+.bar-meter i { display: block; height: 100%; background: var(--ink-2); }
+.bar-meter.warm i { background: var(--acc); } .bar-meter.hot i { background: var(--red); }
+.tokens { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.tokens div { display: grid; gap: 1px; }
+.tokens b { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; }
+
+/* ---------- follow-ups held until the turn ends ---------- */
+h2 .seen-all { margin-left: auto; font-size: 12.5px; font-weight: 400; }
+.held-box { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 4px 4px 4px 12px; margin-bottom: 6px; border-radius: var(--r); background: var(--tint); color: var(--ink-2); font-size: 13.5px; }
+.held-box .text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+
+/* ---------- commands the agent asked for, the human's own steps ---------- */
+button.cmd { display: inline; padding: 0; border: 0; border-radius: 2px; font: 0.93em var(--mono); color: var(--ink); text-decoration: underline; text-decoration-color: var(--ink-2); text-underline-offset: 3px; white-space: normal; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.msg .text code { font: 0.93em var(--mono); background: var(--raise); border-radius: 3px; padding: 0 4px; }
+.msg .text pre.code { margin: 6px 0; padding: 8px 10px; background: var(--raise); border-radius: var(--r-s); white-space: pre-wrap; }
+.run-result { margin: 8px 0 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); font-size: 13.5px; grid-column: 1 / -1; }
+.run-result.ng { border-color: var(--red); }
+.run-head { display: flex; gap: 6px; align-items: center; }
+.run-result pre { margin: 6px 0; max-height: 220px; overflow: auto; }
+.steps-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.steps-head .t { font-weight: 600; color: var(--ink); padding: 2px 4px; }
+.steps ol { margin: 8px 0 0; padding-left: 22px; display: grid; gap: 8px; }
+.steps li label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.steps li input { width: auto; margin-top: 5px; flex: none; }
+.steps li .st { font-weight: 600; }
+.steps li.done .st { text-decoration: line-through; color: var(--ink-2); font-weight: 400; }
+.steps li .note, .steps li .cmd { margin-left: 24px; }
+
+/* ---------- narrow screens: one column; a session takes the whole screen ---------- */
+@media (max-width: 860px) {
+  .app { display: flex; flex-direction: column; height: auto; }
+  .rail { border-right: 0; border-top: 1px solid var(--line); }
+  .rail-scroll { overflow: visible; }
+  .main { overflow: visible; }
+  body[data-view=inbox] .main { order: 1; }
+  body[data-view=inbox] .rail { order: 2; }
+  body:not([data-view=inbox]) .rail { display: none; }
+  body:not([data-view=inbox]) .app, body:not([data-view=inbox]) .main { height: 100%; }
+  .pad { padding: 16px 14px 40px; }
+  .s-title .back { display: inline-flex; }
+  .s-head, .s-body, .s-foot { padding-left: 14px; padding-right: 14px; }
+  .env-new { grid-template-columns: 1fr; }
+  .acts .hint { display: none; }
+  .narrow-only { display: inline-flex; }
+  /* Phones zoom the page when a focused field's text is under 16px. */
+  input[type=text], input[type=password], textarea { font-size: 16px; }
+  .rail-top .primary { display: none; }
+  .s-meta .path { max-width: 100%; }
+}
+
+/* App update (settings) */
+.upd-log { font-size: 12px; max-height: 180px; overflow: auto; background: var(--raise); border: 1px solid var(--line); border-radius: var(--r-s); padding: 8px 10px; margin: 6px 0; color: var(--ink-2); }
+
+/* New work: composer pinned to the bottom, every option and the start button on one line */
+.new-work .nw-head { padding: 22px 28px 0; max-width: 836px; width: 100%; margin: 0 auto; }
+.new-work .s-foot { padding-bottom: 18px; }
+.composer .bar.one-line { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.composer .bar.one-line > * { flex: none; }
+.composer .bar.one-line > .chip { flex: 0 1 auto; min-width: 0; }
+.composer .bar.one-line > .chip.icon-only { flex: none; }
+.composer .bar.one-line > .chip { overflow: hidden; }
+.composer .bar.one-line > .chip > * { flex: none; }
+.composer .bar.one-line > .chip > .v { flex: 0 1 auto; min-width: 0; }
+.composer .bar.one-line .chip .v { max-width: 16ch; }
+.composer .bar.one-line > .grow { flex: 1 1 0; min-width: 4px; }
+
+/* Inbox accordion */
+.ticket.collapsed { padding: 10px 0 12px; }
+.ticket-head.toggles { cursor: pointer; }
+.ticket-head .tg { padding: 2px; margin-left: -4px; }
+.ticket-head .tg[aria-expanded=false] svg { transform: rotate(-90deg); }
+.ticket-sum { margin: 4px 0 0 26px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+/* Work being sent (rail) */
+.strip.sending { cursor: default; opacity: .85; }
+.strip.sending.failed { cursor: pointer; opacity: 1; }
+.sending-box:not(:empty) { margin-top: 6px; }
+/* New work: what was just sent, attachments and limits above the box */
+.sent-note:not(:empty) { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); }
+.above-box { display: flex; align-items: flex-end; gap: 8px; }
+.above-box .attached { flex: 1; min-width: 0; }
+.above-box .attached[hidden] + .limits-row { margin-left: auto; }
+.limits-row { margin-left: auto; display: flex; gap: 14px; flex-wrap: wrap; justify-content: flex-end; font-size: 12px; color: var(--ink-2); padding: 0 2px 6px; font-variant-numeric: tabular-nums; }
+.lim-svc { display: inline-flex; gap: 8px; align-items: center; }
+.lim b { font-weight: 600; color: var(--ink); }
+.lim b.amber { color: var(--acc); } .lim b.red { color: var(--red); }
+.lim.dim { opacity: .6; }
+
+/* ---------- feedback: what you just did shows at once ---------- */
+/* A control that started something says so from the click on, until the answer is back. */
+button[aria-busy=true] { position: relative; pointer-events: none; color: transparent !important; }
+button[aria-busy=true] > * { visibility: hidden; }
+button[aria-busy=true]::after { content: ""; position: absolute; inset: 0; margin: auto; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--ink-2); border-top-color: transparent; animation: turn .8s linear infinite; }
+button.primary[aria-busy=true]::after { border-color: var(--on-acc); border-top-color: transparent; }
+@media (prefers-reduced-motion: reduce) { button[aria-busy=true]::after { animation: none; border-top-color: var(--ink-2); } }
+/* A message that is on its way: already in the conversation, marked as not yet recorded. */
+.msg.unsent .text { opacity: .7; }
+.msg.unsent .when { display: flex; gap: 4px; align-items: center; }
+.outbox:empty { display: none; }
+/* Something happened away from where you are looking (an action was refused after you moved on). */
+.notices { position: fixed; right: 16px; bottom: 16px; z-index: 30; display: grid; gap: 8px; width: min(440px, calc(100vw - 32px)); }
+.notices:empty { display: none; }
+.notice { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 10px 8px 10px 12px; border-radius: var(--r); background: var(--raise); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 13.5px; overflow-wrap: anywhere; }
+.notice.bad { border-color: var(--red); }
+.notice > svg { margin-top: 3px; }
+.notice button { width: 24px; height: 24px; }
+
+/* ---------- inbox: every piece of work, with what can be done about it ---------- */
+h2 .n { font-weight: 400; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.result.work { align-items: center; }
+.result.work > svg { margin-top: 0; }
+.result.work .t { justify-content: flex-start; padding: 2px 4px; font-weight: 600; color: var(--ink); white-space: normal; text-align: left; min-width: 0; }
+.result.work .do { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.result.work .do button { padding: 4px 10px; font-size: 13px; }
+.result.work .do button[aria-expanded=true] { background: var(--tint-2); }
+.result.work .x { grid-column: 2 / 4; }
+.result.work .quick { grid-column: 2 / 4; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; margin-top: 6px; }
+.steps li .note.after { display: flex; gap: 6px; align-items: center; color: var(--acc); }
+@media (max-width: 860px) {
+  .result.work { grid-template-columns: 20px minmax(0, 1fr); }
+  .result.work .do { grid-column: 2; justify-content: flex-start; }
+  .result.work .x, .result.work .quick { grid-column: 2; }
+}
+</style>
+</head>
+<body data-view="inbox">
+<div class="banner" id="banner" role="alert" hidden></div>
+<div class="app">
+  <nav class="rail" id="rail" aria-label="作業の一覧"></nav>
+  <main class="main" id="main"></main>
+</div>
+<div class="notices" id="notices" role="status" aria-live="polite"></div>
+<div class="sr-only" id="live" aria-live="polite"></div>
+<script>
+// Mock-up only: stands in for the Orrery server so the real UI code can run from a single HTML file with invented data.
+'use strict';
+(() => {
+  sessionStorage.setItem('crToken', 'mock');
+  const now = Date.now();
+  const min = 60000;
+  const sess = (id, o) => ({ id, provider: 'claude', projectName: 'orrery', cwd: 'C:\\work\\orrery', taskTitle: id, lifecycle: 'turn_finished', lifecycleSince: now - 12 * min, updatedAt: now - 12 * min, completion: 'unverified', unread: false, archived: false, live: true, process: null, model: 'Opus 5.5', effort: 'medium', approvalMode: 'ask', transcriptRev: 1, resumability: 'ok', task: { humanSteps: null }, ...o });
+  const sessions = [
+    sess('s1', { taskTitle: 'モデル選択をポップオーバーにする', lifecycle: 'waiting_for_user', lifecycleSince: now - 2 * min, completion: null, resources: { processCount: 3, workingSetBytes: 412e6, shared: false, scope: 'この作業のプロセス', sampledAt: now } }),
+    sess('s2', { taskTitle: 'SQLiteストアの移行スクリプト', provider: 'codex', projectName: 'ledger', cwd: 'C:\\work\\ledger', lifecycle: 'running', lifecycleSince: now - 7 * min, completion: null, model: 'gpt-5.5-codex', effort: 'high', activity: { at: now - 20000, text: 'npm test -- sqlite-store' } }),
+    sess('s3', { taskTitle: 'トレイアイコンの差し替え', lifecycle: 'running', lifecycleSince: now - 31 * min, completion: null, activity: { at: now - 5 * min, text: 'make-icons.mjs を編集中' }, deferredMessage: '終わったら install-app も流して' }),
+    sess('s4', { taskTitle: 'E2Eのフレーク調査', lifecycle: 'queued', queuePosition: 1, completion: null, live: false }),
+    sess('s5', { taskTitle: 'Runbookの更新', unread: true, lastText: '04-Runbook.md に起動手順とトラブルシュートを追記しました。' }),
+    sess('s6', { taskTitle: '起動時のメモリ計測', lifecycleSince: now - 3 * 60 * min, updatedAt: now - 3 * 60 * min, live: false }),
+    sess('s7', { taskTitle: 'Windowsジョブの後始末', provider: 'codex', lifecycle: 'error', error: 'プロセスが異常終了しました', lifecycleSince: now - 50 * min, completion: null, live: false }),
+  ];
+  const item = (id, sessionId, o) => ({ id, sessionId, status: 'pending', createdAt: now - 2 * min, taskTitle: sessions.find((s) => s.id === sessionId).taskTitle, source: { provider: sessions.find((s) => s.id === sessionId).provider, requestId: 'req-' + id, providerSessionId: 'abc', generation: 1 }, ...o });
+  const items = [
+    item('i1', 's1', { type: 'approval', summary: 'npm run package', approval: { tool: 'Bash', subject: 'npm run package', cwd: 'C:\\work\\orrery', reason: 'パッケージを作り直して見た目を確認します', decisions: ['accept', 'acceptForSession', 'decline', 'cancel'] } }),
+    item('i2', 's1', { type: 'user_question', summary: 'メニューはどちら向きに開きますか', allowDecline: false, questions: [{ id: 'q1', text: 'メニューはどちら向きに開きますか', options: [{ label: '下に開く', description: '収まらないときだけ上' }, { label: '常に上に開く' }], multiSelect: false, allowFreeText: true, optional: false }] }),
+  ];
+  const state = {
+    counts: { needsAttention: 2, humanTasks: 0, running: 2, turnFinished: 2, problems: 1, archived: 4, queued: 1, unread: 1 },
+    resources: { processCount: 7, workingSetBytes: 913e6, scope: 'エージェントのプロセスの合計' },
+    auth: { claude: { loggedIn: true, plan: 'Max', loginInProgress: false }, codex: { loggedIn: true, plan: 'Pro', loginInProgress: false } },
+    sessions, items,
+    queue: { blockedBy: 'slots', length: 1, freeMemoryMB: 6120 },
+    settings: { maxConcurrent: 3, minFreeMemoryMB: 1500 },
+    projects: [{ id: 'p1', name: 'orrery', rootPath: 'C:\\work\\orrery', envCount: 2 }, { id: 'p2', name: 'ledger', rootPath: 'C:\\work\\ledger', envCount: 0 }, { id: 'p3', name: 'starchart-site', rootPath: 'D:\\sites\\starchart', envCount: 0 }],
+  };
+  const MODELS = {
+    claude: [
+      { id: 'opus', label: 'Opus 5.5', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], isDefault: true },
+      { id: 'fable', label: 'Fable 5.2', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      { id: 'sonnet', label: 'Sonnet 5.5', efforts: ['low', 'medium', 'high'] },
+      { id: 'haiku', label: 'Haiku 5.5', efforts: [] },
+    ],
+    codex: [
+      { id: 'gpt-5.5-codex', label: 'GPT-5.5 Codex', efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'], isDefault: true },
+      { id: 'gpt-5.5-mini', label: 'GPT-5.5 mini', efforts: ['low', 'medium', 'high'] },
+    ],
+  };
+  const transcript = [
+    { seq: 1, role: 'user', at: now - 14 * min, text: 'モデル選択を、画面全体のオーバーレイではなく、押した場所に開くメニューにして。' },
+    { seq: 2, role: 'assistant', at: now - 13 * min, text: 'いまの `openModelSheet` を外して、チップの位置に開くメニューへ置き換えます。先に依存を確認します。' },
+    { seq: 3, role: 'tool', at: now - 13 * min, text: '▶ Grep {"pattern":"openModelSheet","path":"packages/server/public"}' },
+    { seq: 4, role: 'tool', at: now - 13 * min, text: '✔ packages/server/public/app.js:363' },
+    { seq: 5, role: 'assistant', at: now - 3 * min, text: '置き換えが終わりました。見た目を確かめるために、次を実行します。\n\n```\nnpm run package\n```' },
+  ];
+  const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  window.fetch = async (url) => {
+    const path = String(url);
+    if (path === '/api/stream') {
+      return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(state)}\n\n`)); } }));
+    }
+    let m;
+    if ((m = path.match(/^\/api\/models\/(\w+)/))) return json({ models: MODELS[m[1]] ?? [] });
+    if (/\/transcript(\?|$)/.test(path)) return json({ entries: path.includes('?') ? [] : transcript });
+    if (path === '/api/usage') {
+      const u = (pct) => ({ limits: [{ label: '5時間', usedPercent: pct, state: 'ok', resetsAt: now + 95 * min }, { label: '週', usedPercent: pct + 38, state: 'warning', resetsAt: now + 3 * 1440 * min }], today: { input: 412000, output: 58000, turns: 23 }, week: { input: 3.4e6, output: 410000, turns: 164 } });
+      return json({ claude: u(34), codex: u(12) });
+    }
+    if ((m = path.match(/^\/api\/attachments\?name=(.*)$/))) return json({ name: decodeURIComponent(m[1]), path: 'C:\\Users\\you\\AppData\\Local\\AgentControlRoom\\attachments\\3f2a\\' + decodeURIComponent(m[1]), size: 1 });
+    if (path === '/api/storage') return json({ bytes: 48e6, transcriptEntries: 5210, rawPayloads: 940, sessions: 61, archivedSessions: 4 });
+    if (/\/env$/.test(path)) return json({ vars: [{ name: 'DATABASE_URL', length: 42 }, { name: 'SENTRY_DSN', length: 61 }] });
+    return json({ error: 'モックアップなので、ここから先は動きません' }, 409);
+  };
+})();
+</script>
+<script>
+'use strict';
+const __modules = {};
+__modules["js/logic/optimistic.js"] = (() => {
+// Expected effects of the human's actions on the server's picture. Each function returns apply(state), which edits a
+// copy of the snapshot the way the server is expected to; the store shows that copy until the server's own picture
+// arrives. Pure: no DOM, no network. If a guess here is wrong the next snapshot corrects it within moments.
+
+const session = (state, id) => state.sessions.find((s) => s.id === id);
+const BUSY = ['running', 'waiting_for_user', 'queued'];
+
+/** The header counts, recomputed the way the server computes them. */
+function recount(state) {
+  const working = state.sessions.filter((s) => !s.archived);
+  const life = (...l) => working.filter((s) => l.includes(s.lifecycle)).length;
+  const done = (c) => working.filter((s) => s.completion === c).length;
+  state.counts = {
+    ...state.counts,
+    needsAttention: state.items.filter((i) => i.status === 'pending').length,
+    running: life('running'),
+    queued: life('queued'),
+    waiting: life('waiting_for_user'),
+    turnFinished: life('turn_finished'),
+    problems: life('error', 'interrupted', 'unknown'),
+    candidates: done('candidate'),
+    humanTasks: done('human_steps'),
+    needsFix: done('needs_fix'),
+    unread: working.filter((s) => s.unread).length,
+    archived: state.sessions.length - working.length,
+  };
+}
+
+/** The agent was sent back to work: what its last reply left open no longer applies. */
+function backToWork(state, s) {
+  s.lifecycle = 'running';
+  s.lifecycleSince = Date.now();
+  s.completion = 'working';
+  s.unread = false;
+  s.archived = false;
+  s.awaitingBackground = false;
+  if (s.task) Object.assign(s.task, { humanSteps: null, validation: null, acceptedAt: null });
+  for (const i of state.items) if (i.sessionId === s.id && i.passive && i.status === 'pending') i.status = 'expired';
+}
+
+/** Actions that take the server a moment: the session is marked with what is being done to it (`busyWith`). */
+const SLOW = new Set(['interrupt', 'stop', 'cleanup', 'check', 'finish']);
+
+/** One of the per-session actions (the same names as the API). */
+const actEffect = (sessionId, action, body = {}) => (state) => {
+  const s = session(state, sessionId);
+  if (!s) return;
+  if (SLOW.has(action)) s.busyWith = action;
+  switch (action) {
+    case 'interrupt':
+      // Work that was still waiting for a slot is simply taken out of the queue.
+      if (s.lifecycle === 'queued') Object.assign(s, { lifecycle: 'interrupted', lifecycleSince: Date.now(), queuePosition: null, busyWith: null });
+      break;
+    case 'archive':
+      Object.assign(s, { archived: true, unread: false });
+      break;
+    case 'accept':
+      Object.assign(s, { archived: true, unread: false, completion: 'accepted' });
+      break;
+    case 'unarchive':
+      s.archived = false;
+      break;
+    case 'reopen':
+      Object.assign(s, { archived: false, completion: 'unverified' });
+      break;
+    case 'seen':
+      s.unread = false;
+      break;
+    case 'check':
+      if (s.task) s.task.validating = true;
+      s.completion = 'validating';
+      break;
+    case 'rename':
+      s.taskTitle = String(body.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 80) || s.taskTitle;
+      break;
+    case 'unsend':
+      s.deferredMessage = null;
+      break;
+    case 'finish':
+      Object.assign(s, { awaitingBackground: false, lifecycle: 'turn_finished', lifecycleSince: Date.now(), completion: 'unverified' });
+      break;
+  }
+};
+
+/** Several sessions at once (mark all seen, put all away). */
+const manyEffect = (sessionIds, action) => (state) => {
+  for (const id of sessionIds) actEffect(id, action)(state);
+};
+
+/** A message to a session: held if the agent is busy, otherwise the agent starts on it. */
+const messageEffect = (sessionId, text) => (state) => {
+  const s = session(state, sessionId);
+  if (!s) return;
+  if (BUSY.includes(s.lifecycle) && !(s.lifecycle === 'running' && s.awaitingBackground && s.live)) s.deferredMessage = s.deferredMessage ? `${s.deferredMessage}\n\n${text}` : text;
+  else backToWork(state, s);
+};
+
+/** An answer to a request: it leaves the inbox, and the agent goes on if nothing else is asked of the human. */
+const answerEffect = (itemId, answer) => (state) => {
+  const item = state.items.find((i) => i.id === itemId);
+  if (!item || item.status !== 'pending') return;
+  item.status = 'answering';
+  item.response = { answer, sentAt: Date.now() };
+  const s = session(state, item.sessionId);
+  if (!s) return;
+  if (item.passive) {
+    item.status = 'resolved';
+    if (answer.kind === 'answers') backToWork(state, s);
+  } else if (s.lifecycle === 'waiting_for_user' && !state.items.some((i) => i.sessionId === s.id && i.status === 'pending')) {
+    s.lifecycle = 'running';
+    s.lifecycleSince = Date.now();
+  }
+};
+
+/** A step of the human's own list ticked. The last one finishes the work, which is then put away. */
+const stepEffect = (sessionId, index, done) => (state) => {
+  const s = session(state, sessionId);
+  const steps = s?.task?.humanSteps;
+  if (!steps?.[index]) return;
+  steps[index].done = done;
+  if (steps.every((x) => x.done)) Object.assign(s, { archived: true, unread: false, completion: 'accepted' });
+};
+
+const settingsEffect = (patch) => (state) => {
+  const next = { ...state.settings };
+  if (patch.maxConcurrent !== undefined) next.maxConcurrent = Math.min(20, Math.max(1, Math.floor(Number(patch.maxConcurrent)) || 1));
+  if (patch.minFreeMemoryMB !== undefined) next.minFreeMemoryMB = Math.min(65536, Math.max(0, Math.floor(Number(patch.minFreeMemoryMB)) || 0));
+  state.settings = next;
+};
+
+const loginEffect = (provider) => (state) => {
+  if (state.auth?.[provider]) state.auth[provider].loginInProgress = true;
+};
+
+return { recount, actEffect, manyEffect, messageEffect, answerEffect, stepEffect, settingsEffect, loginEffect };
+})();
+__modules["js/logic/store.js"] = (() => {
+// Client state: the latest picture of the server plus what the human is in the middle of (drafts, open tickets,
+// work being sent). No DOM here: the UI subscribes and redraws; logic changes the store and calls changed().
+//
+// Feedback rule: what the human does shows at once. An action first puts its expected effect on top of the server's
+// picture (optimistic()), then asks the server. If the server refuses, the effect is taken back and the reason is
+// shown; if it accepts, the effect stays until the server's own next picture replaces it.
+const { recount } = __modules["js/logic/optimistic.js"];
+/** How long a confirmed effect is kept if the server sends no new picture (the action changed nothing visible). */
+const CONFIRMED_KEEP_MS = 3000;
+const NOTICE_MS = 7000;
+
+const store = {
+  /** What the UI draws: the server's picture with the effects of unconfirmed actions on top. Null until the first picture. */
+  state: null,
+  /** The server's last picture, untouched. */
+  server: null,
+  /** Effects of actions the server has not shown yet: { apply(state), confirmed }. */
+  effects: [],
+  /** Per-start API token. */
+  token: '',
+  /** itemId -> { [questionId]: { picked:Set, free:string } } */
+  drafts: new Map(),
+  /** itemId -> deny message draft */
+  notes: new Map(),
+  /** itemId / sessionId -> message */
+  errors: new Map(),
+  /** sessionId -> text being written in its reply box */
+  composerDrafts: new Map(),
+  /** sessionId -> [{ id, text }] messages sent from here that the conversation record does not show yet. */
+  outbox: new Map(),
+  /** Sessions whose row in the inbox has its reply box open. */
+  replying: new Set(),
+  showAllFinished: false,
+  /** Requests expanded in the inbox. One opens by itself; answering it opens the next. Several may be open at once. */
+  expanded: new Set(),
+  /** The human closed every request on purpose: do not reopen one by itself. */
+  userCollapsed: false,
+  lastOpenIds: [],
+  /** New work just sent: shown in the rail at once, before the control room has answered. */
+  sending: [],
+  /** What is being written on the new-work screen, kept while other screens are open. */
+  newDraft: { prompt: '', folder: '', error: '', sent: null },
+  /** Last plan-limit reading per service (from /api/usage), shared by the new-work screen and the usage screen. */
+  limitsCache: null,
+  /** Short messages about something that just happened elsewhere on the page: [{ id, text, tone }]. */
+  notices: [],
+
+  listeners: new Set(),
+  subscribe(fn) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  },
+  /** Something the UI shows changed: redraw now (synchronously, so callers can touch the new DOM right after). */
+  changed() {
+    for (const fn of this.listeners) fn();
+  },
+
+  /** A new picture from the server. Effects it already had the chance to include are dropped. */
+  receive(snapshot) {
+    this.server = snapshot;
+    this.effects = this.effects.filter((e) => !e.confirmed);
+    this.rebuild();
+    this.changed();
+  },
+
+  rebuild() {
+    if (!this.server || !this.effects.length) {
+      this.state = this.server;
+      return;
+    }
+    const state = structuredClone(this.server);
+    for (const e of this.effects) e.apply(state);
+    recount(state);
+    this.state = state;
+  },
+
+  /**
+   * Show the expected effect of an action from this instant. Returns a handle for when the server has answered:
+   * confirm() (keep it until the server's next picture) or fail() (take it back).
+   */
+  optimistic(apply) {
+    const effect = { apply, confirmed: false };
+    this.effects.push(effect);
+    this.rebuild();
+    this.changed();
+    const drop = () => {
+      const at = this.effects.indexOf(effect);
+      if (at < 0) return;
+      this.effects.splice(at, 1);
+      this.rebuild();
+      this.changed();
+    };
+    return {
+      confirm: () => {
+        effect.confirmed = true;
+        setTimeout(drop, CONFIRMED_KEEP_MS).unref?.();
+      },
+      fail: drop,
+    };
+  },
+
+  /** Tell the human something that happened away from where they are looking (a refusal after they moved on). */
+  notice(text, tone = 'bad') {
+    const n = { id: `${Date.now()}-${Math.random()}`, text, tone };
+    this.notices.push(n);
+    this.changed();
+    setTimeout(() => this.dismissNotice(n.id), NOTICE_MS).unref?.();
+  },
+  dismissNotice(id) {
+    const at = this.notices.findIndex((n) => n.id === id);
+    if (at < 0) return;
+    this.notices.splice(at, 1);
+    this.changed();
+  },
+};
+
+return { store };
+})();
+__modules["js/logic/api.js"] = (() => {
+// Talking to the Orrery server: JSON calls, file upload, and the state stream. Every answer is { status, body };
+// status 0 means the server could not be reached (nothing was sent).
+const { store } = __modules["js/logic/store.js"];
+async function api(path, body) {
+  try {
+    const r = await fetch(path, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'content-type': 'application/json', 'x-control-room-token': store.token },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  } catch {
+    return { status: 0, body: { error: 'Orreryに接続できません。何も送信されていません。' } };
+  }
+}
+
+/** Send a file as the request body (no JSON, no base64). */
+async function upload(path, file) {
+  try {
+    const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'x-control-room-token': store.token }, body: file });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  } catch {
+    return { status: 0, body: { error: 'Orreryに接続できません。添付されていません。' } };
+  }
+}
+
+/**
+ * Follow the server's state stream for as long as the page lives, reconnecting when it drops.
+ * onState(snapshot) for every push; onStatus('connected' | 'lost' | 'refused') when the connection changes.
+ */
+async function followState(onState, onStatus) {
+  for (;;) {
+    try {
+      const r = await fetch('/api/stream', { headers: { 'x-control-room-token': store.token } });
+      if (r.status === 401) return onStatus('refused');
+      if (!r.ok) throw new Error(String(r.status));
+      onStatus('connected');
+      const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += value;
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          if (chunk.startsWith('data: ')) onState(JSON.parse(chunk.slice(6)));
+        }
+      }
+    } catch {}
+    onStatus('lost');
+    await new Promise((res) => setTimeout(res, 2000));
+  }
+}
+
+return { api, upload, followState };
+})();
+__modules["js/logic/route.js"] = (() => {
+// Which screen a location hash means. Pure.
+function parseRoute(hash) {
+  const h = hash.replace(/^#\/?/, '');
+  if (h.startsWith('s/')) return { view: 'session', id: h.slice(2) };
+  if (h === 'new') return { view: 'new' };
+  if (h === 'archive') return { view: 'archive' };
+  if (h === 'settings') return { view: 'settings' };
+  if (h === 'usage') return { view: 'usage' };
+  if (h.startsWith('env/')) return { view: 'env', id: h.slice(4) };
+  return { view: 'inbox' };
+}
+
+/** Identity of the screen: the same key means "update what is there", another key means "build the screen". */
+const routeKey = (r) => (r.view === 'session' ? `s:${r.id}` : r.view === 'env' ? `env:${r.id}` : r.view);
+
+return { parseRoute, routeKey };
+})();
+__modules["js/logic/selectors.js"] = (() => {
+// Derivations: what the lists on screen consist of, computed from the server snapshot. Pure functions, no DOM,
+// no words: the UI decides how each group is labelled and drawn.
+
+/** How long a sent answer may stay unconfirmed before the request is shown again. */
+const UNCONFIRMED_MS = 8000;
+
+/** Requests to show: unanswered ones, and answered ones the agent has not confirmed for a while. */
+const isOpen = (i) => i.status === 'pending' || (i.status === 'answering' && Date.now() - (i.response?.sentAt ?? 0) > UNCONFIRMED_MS);
+
+/** Minutes a running session has shown no activity (0 while it is clearly alive). */
+const quietFor = (s) => {
+  const m = s.activity ? Math.floor((Date.now() - s.activity.at) / 60000) : 0;
+  return m >= 3 ? m : 0;
+};
+
+const BUSY = ['running', 'waiting_for_user', 'queued'];
+const isBusy = (s) => BUSY.includes(s.lifecycle);
+
+/** What kind of request a ticket is, as a key the UI turns into a word and an icon. */
+function ticketKind(item) {
+  if (item.type === 'user_question') return String(item.source.requestId).startsWith('final:') ? 'question_from_reply' : item.allowDecline ? 'input' : 'question';
+  const tool = item.approval?.tool ?? '';
+  if (tool === 'ExitPlanMode') return 'plan';
+  if (item.approval?.changes?.length) return 'file_change';
+  if (tool.startsWith('mcp')) return 'external_tool';
+  if (tool === 'shell' || tool === 'Bash') return 'command';
+  return 'approval';
+}
+
+/** sessionId -> number of unanswered requests. */
+function pendingBySession(state) {
+  const by = new Map();
+  for (const i of state.items) if (i.status === 'pending') by.set(i.sessionId, (by.get(i.sessionId) ?? 0) + 1);
+  return by;
+}
+
+/** The strip board at the side: every piece of work that is not put away, grouped by what it is waiting for. */
+function railModel(state, showAllFinished) {
+  const c = state.counts;
+  const live = state.sessions.filter((s) => !s.archived);
+  const pendingBy = pendingBySession(state);
+  const finishedAll = live.filter((s) => s.lifecycle === 'turn_finished' && !pendingBy.has(s.id) && s.completion !== 'human_steps').sort((a, b) => Number(b.unread) - Number(a.unread) || b.updatedAt - a.updatedAt);
+  return {
+    needsYou: c.needsAttention + c.humanTasks,
+    live,
+    pendingBy,
+    groups: [
+      { key: 'wait', list: live.filter((s) => s.lifecycle === 'waiting_for_user' || pendingBy.has(s.id) || s.completion === 'human_steps') },
+      { key: 'run', list: live.filter((s) => s.lifecycle === 'running') },
+      { key: 'queue', list: live.filter((s) => s.lifecycle === 'queued').sort((a, b) => (a.queuePosition ?? 99) - (b.queuePosition ?? 99)) },
+      { key: 'bad', list: live.filter((s) => ['error', 'interrupted', 'unknown'].includes(s.lifecycle)) },
+      { key: 'done', list: showAllFinished ? finishedAll : finishedAll.slice(0, 8), total: finishedAll.length },
+    ],
+    /** Finished work whose result the human has already looked at: can be put away in one go. */
+    seenFinished: finishedAll.filter((x) => !x.unread && x.completion === 'unverified'),
+  };
+}
+
+/**
+ * The inbox: the one list from which every piece of work is managed, most pressing first.
+ * Every session that is not put away is in at least one group, so nothing can only be reached from elsewhere:
+ *   open        requests to answer (a session with one is reached through it)
+ *   steps       the agent is done, the rest is the human's
+ *   needsFix    the automatic check failed
+ *   candidates  the check passed: can be called done
+ *   problems    stopped: failed, interrupted, or in an unknown state
+ *   finished    the reply ended and nothing checks it: read it, reply, or call it done
+ *   active      still going: running, queued, being checked, or waiting on the human without a request we can show
+ */
+function inboxModel(state) {
+  const live = state.sessions.filter((s) => !s.archived);
+  const open = state.items.filter(isOpen);
+  const asked = new Set(open.map((i) => i.sessionId));
+  const stopped = (s) => ['error', 'interrupted', 'unknown'].includes(s.lifecycle);
+  const going = (s) => s.completion === 'validating' || s.lifecycle === 'running' || s.lifecycle === 'queued' || (s.lifecycle === 'waiting_for_user' && !asked.has(s.id));
+  const ORDER = { waiting_for_user: 0, running: 1, turn_finished: 2, queued: 3 };
+  return {
+    open,
+    steps: live.filter((s) => s.completion === 'human_steps'),
+    candidates: live.filter((s) => s.completion === 'candidate'),
+    needsFix: live.filter((s) => s.completion === 'needs_fix'),
+    problems: live.filter((s) => stopped(s) && s.completion !== 'validating').sort((a, b) => Number(b.unread) - Number(a.unread) || b.updatedAt - a.updatedAt),
+    finished: live.filter((s) => (s.completion === 'unverified' || s.completion === 'accepted') && !asked.has(s.id)).sort((a, b) => Number(b.unread) - Number(a.unread) || b.updatedAt - a.updatedAt),
+    active: live.filter(going).sort((a, b) => (ORDER[a.lifecycle] ?? 9) - (ORDER[b.lifecycle] ?? 9) || (a.queuePosition ?? 0) - (b.queuePosition ?? 0) || b.updatedAt - a.updatedAt),
+    allUnread: live.filter((s) => s.unread),
+  };
+}
+
+/** True when the session can be found in the inbox (through a request or in one of its groups). */
+function inInbox(state, sessionId) {
+  const m = inboxModel(state);
+  return m.open.some((i) => i.sessionId === sessionId) || [m.steps, m.candidates, m.needsFix, m.problems, m.finished, m.active].some((g) => g.some((s) => s.id === sessionId));
+}
+
+/**
+ * Accordion of open requests: answering an open one opens the next; with nothing open, the first opens by itself.
+ * Updates store.expanded / lastOpenIds / userCollapsed and returns the request that was opened now (or null) and
+ * whether that happened because another one was just answered.
+ */
+function advanceAccordion(store, ids) {
+  const { expanded } = store;
+  let answeredAt = -2;
+  for (const id of [...expanded]) {
+    if (ids.includes(id)) continue;
+    expanded.delete(id);
+    if (store.lastOpenIds.includes(id)) answeredAt = Math.max(answeredAt, store.lastOpenIds.indexOf(id));
+  }
+  let opened = null;
+  if (answeredAt > -2) {
+    opened = ids.find((id) => !expanded.has(id) && (store.lastOpenIds.indexOf(id) > answeredAt || !store.lastOpenIds.includes(id))) ?? ids.find((id) => !expanded.has(id)) ?? null;
+  } else if (!ids.some((id) => expanded.has(id)) && !store.userCollapsed && ids.length) {
+    opened = ids[0];
+  }
+  if (opened) expanded.add(opened);
+  if (!ids.length) store.userCollapsed = false;
+  store.lastOpenIds = ids;
+  return { opened, afterAnswer: answeredAt > -2 };
+}
+
+/** Open or close one request by hand. */
+function toggleTicket(store, itemId) {
+  if (store.expanded.has(itemId)) {
+    store.expanded.delete(itemId);
+    if (!store.state.items.some((x) => isOpen(x) && store.expanded.has(x.id))) store.userCollapsed = true;
+  } else {
+    store.expanded.add(itemId);
+    store.userCollapsed = false;
+  }
+}
+
+/** One session's screen: the session and what can be done with it right now. */
+function sessionModel(state, id) {
+  const s = state.sessions.find((x) => x.id === id);
+  if (!s) return null;
+  const res = s.resources;
+  return {
+    s,
+    busy: isBusy(s),
+    /** Processes a session that is no longer live left running. */
+    leftovers: !!(res && !res.shared && !s.live && res.processCount > 0),
+    /** Unanswered requests of other sessions (for "next one"). */
+    others: state.items.filter((i) => i.status === 'pending' && i.sessionId !== id),
+    mine: state.items.filter((i) => i.sessionId === id && isOpen(i)),
+  };
+}
+
+/** The session after (or before) `currentId` in the order the rail shows them. */
+function neighbour(order, currentId, backwards) {
+  const at = order.indexOf(currentId);
+  return order[(at + (backwards ? -1 : 1) + order.length) % order.length];
+}
+
+return { UNCONFIRMED_MS, isOpen, quietFor, BUSY, isBusy, ticketKind, pendingBySession, railModel, inboxModel, inInbox, advanceAccordion, toggleTicket, sessionModel, neighbour };
+})();
+__modules["js/ui/dom.js"] = (() => {
+// DOM helpers. Everything an agent wrote is appended as TEXT through el(); nothing from an agent is ever parsed as HTML.
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, ...kids) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === 'class') n.className = v;
+    else if (k === 'onclick') n.addEventListener('click', (e) => busyWhile(n, v(e)));
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else if (k === 'value') n.value = v;
+    else n.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids.flat(Infinity)) if (kid !== null && kid !== undefined && kid !== false) n.append(kid);
+  if (tag === 'textarea') growWatch.observe(n);
+  return n;
+};
+
+/**
+ * Feedback rule: a control that started something shows it from the click on, not when the answer comes back.
+ * While `work` (a promise) is pending the control is marked busy (a spinner, no second click); nothing else changes.
+ */
+function busyWhile(node, work) {
+  if (!work || typeof work.then !== 'function') return work;
+  node.setAttribute('aria-busy', 'true');
+  const done = () => node.removeAttribute('aria-busy');
+  work.then(done, done);
+  return work;
+}
+
+// Text areas grow with what is typed (wrapping at the edge) up to their CSS max-height, then scroll.
+function autoGrow(t) {
+  if (!t.isConnected) return;
+  const max = parseFloat(getComputedStyle(t).maxHeight) || Infinity;
+  t.style.height = 'auto';
+  const h = t.scrollHeight + t.offsetHeight - t.clientHeight;
+  t.style.height = `${Math.min(h, max)}px`;
+  t.style.overflowY = h > max ? 'auto' : 'hidden';
+}
+// A width change re-wraps the text, so the height is measured again (height changes alone are ignored: we cause those).
+const growWatch = new ResizeObserver((entries) => {
+  for (const { target, contentRect } of entries) {
+    if (target._growW === contentRect.width) continue;
+    target._growW = contentRect.width;
+    autoGrow(target);
+  }
+});
+document.addEventListener('input', (e) => { if (e.target instanceof HTMLTextAreaElement) autoGrow(e.target); });
+/** replaceChildren that skips false/null/undefined (so `cond && node` is safe). */
+const put = (node, ...kids) => node.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false));
+// ---- keyed list sync: only rows whose signature changed are rebuilt ----------------------------------
+function sync(container, list, key, sig, build) {
+  const old = new Map([...container.children].map((n) => [n.dataset.key, n]));
+  let prev = null;
+  for (const item of list) {
+    const k = String(key(item));
+    const s = String(sig(item));
+    let node = old.get(k);
+    if (!node || node.dataset.sig !== s) {
+      const hadFocus = node && node.contains(document.activeElement);
+      const fresh = build(item);
+      fresh.dataset.key = k;
+      fresh.dataset.sig = s;
+      if (node) node.replaceWith(fresh);
+      node = fresh;
+      if (hadFocus) (node.matches('button,[tabindex]') ? node : node.querySelector('[tabindex],button,input'))?.focus();
+    }
+    old.delete(k);
+    const want = prev ? prev.nextSibling : container.firstChild;
+    if (node !== want) container.insertBefore(node, want);
+    prev = node;
+  }
+  for (const n of old.values()) n.remove();
+}
+
+return { $, el, busyWhile, autoGrow, put, sync };
+})();
+__modules["js/ui/icons.js"] = (() => {
+// Icons: our own static path data (trusted constants).
+const ICON = {
+  inbox: 'M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z M4 13h4.5a3.5 3.5 0 0 0 7 0H20',
+  attention: 'M12 3l9 9-9 9-9-9z M12 8v5 M12 16h.01',
+  question: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7 M12 17h.01',
+  shield: 'M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z M9 12l2 2 4-4',
+  running: 'M12 3a9 9 0 1 0 9 9',
+  check: 'M5 12.5l4.5 4.5L19 7.5',
+  done: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8 12.5l2.8 2.8L16 9.5',
+  pause: 'M9 5v14 M15 5v14',
+  error: 'M12 3l10 17H2z M12 10v4 M12 17h.01',
+  clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 7v5l3 2',
+  stop: 'M6 6h12v12H6z',
+  send: 'M4 12l16-8-6 16-2.5-6.5z',
+  plus: 'M12 5v14 M5 12h14',
+  folder: 'M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z',
+  terminal: 'M4 5h16v14H4z M7.5 9.5l3 2.5-3 2.5 M12.5 15h4',
+  file: 'M7 3h7l4 4v14H7z M14 3v4h4 M9.5 13.5h5 M12 11v5',
+  chip: 'M7 7h10v10H7z M10 3v4 M14 3v4 M10 17v4 M14 17v4 M3 10h4 M3 14h4 M17 10h4 M17 14h4',
+  archive: 'M4 5h16v4H4z M6 9v10h12V9 M10 13h4',
+  restore: 'M4 12a8 8 0 1 0 2.5-5.8 M4 4v5h5',
+  power: 'M12 4v8 M7 7a7 7 0 1 0 10 0',
+  back: 'M14 6l-6 6 6 6',
+  user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4.5 20a7.5 7.5 0 0 1 15 0',
+  agent: 'M6 9h12v9H6z M12 9V5 M12 5h.01 M9.5 13h.01 M14.5 13h.01',
+  info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 11v5 M12 8h.01',
+  plan: 'M8 7h11 M8 12h11 M8 17h11 M4.5 7h.01 M4.5 12h.01 M4.5 17h.01',
+  plug: 'M9 3v5 M15 3v5 M7 8h10v3a5 5 0 0 1-10 0z M12 16v5',
+  trash: 'M5 7h14 M9 7V4h6v3 M7 7l1 13h8l1-13',
+  x: 'M6 6l12 12 M18 6L6 18',
+  model: 'M12 3l8 4.5v9L12 21l-8-4.5v-9z M12 12l8-4.5 M12 12v9 M12 12L4 7.5',
+  down: 'M6 10l6 6 6-6',
+  sliders: 'M4 7h10 M18 7h2 M4 17h4 M12 17h8 M14 5v4 M8 15v4',
+  pencil: 'M4 20l4-1L19 8l-3-3L5 16z M14 7l3 3',
+  fail: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M9 9l6 6 M15 9l-6 6',
+  key: 'M8 15a4 4 0 1 1 3.5-2.1L20 4.5 M16 8l2.5 2.5 M13.5 10.5L16 13',
+  eye: 'M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z M12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
+  minus: 'M5 12h14',
+  gauge: 'M4 16a8 8 0 1 1 16 0 M12 16l4-5 M4 16h16',
+  bolt: 'M13 3L5 13h6l-1 8 8-10h-6z',
+  login: 'M14 4h5v16h-5 M4 12h10 M10 8l4 4-4 4',
+  clip: 'M20 11.5l-7.8 7.8a5 5 0 0 1-7-7l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6',
+  claude: 'M12 3v18 M3 12h18 M5.6 5.6l12.8 12.8 M18.4 5.6L5.6 18.4',
+  codex: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8.5 9.5l3 2.5-3 2.5 M13 14.5h3',
+  branch: 'M7 4v11 M7 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M17 9.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M17 9.5c0 4-4 5-10 6.5',
+};
+const SVG = 'http://www.w3.org/2000/svg';
+function icon(name, cls = '') {
+  const s = document.createElementNS(SVG, 'svg');
+  s.setAttribute('viewBox', '0 0 24 24');
+  s.setAttribute('class', `i ${cls}`);
+  s.setAttribute('aria-hidden', 'true');
+  for (const d of ICON[name].split(' M').map((p, i) => (i ? 'M' + p : p))) {
+    const p = document.createElementNS(SVG, 'path');
+    p.setAttribute('d', d);
+    s.append(p);
+  }
+  return s;
+}
+/** The orrery: a sun, three orbits and one planet per running piece of work. It only moves while something is running. */
+function orrery(planets, cls = '') {
+  const s = document.createElementNS(SVG, 'svg');
+  const add = (parent, tag, attrs) => {
+    const n = document.createElementNS(SVG, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
+    parent.append(n);
+    return n;
+  };
+  s.setAttribute('viewBox', '0 0 100 100');
+  s.setAttribute('class', `orrery ${cls}`);
+  s.setAttribute('aria-hidden', 'true');
+  const R = [17, 30, 43];
+  for (const r of R) add(s, 'circle', { cx: 50, cy: 50, r, class: 'orbit' });
+  add(s, 'circle', { cx: 50, cy: 50, r: 7, class: 'sun' });
+  for (let i = 0; i < Math.min(planets, 6); i++) {
+    const turned = add(s, 'g', { transform: `rotate(${(i * 137 + 20) % 360} 50 50)` });
+    add(add(turned, 'g', { class: `arm a${i % 3}` }), 'circle', { cx: 50 + R[i % 3], cy: 50, r: [3, 4.2, 3.4][i % 3], class: 'planet' });
+  }
+  return s;
+}
+
+return { SVG, icon, orrery };
+})();
+__modules["js/logic/actions.js"] = (() => {
+// Everything the human can do, as functions the UI calls. Each one shows its expected effect at once (see store.js),
+// then talks to the server and records the outcome in the store; none touches the DOM.
+// Answers are { status, body } (status 200 = done).
+const { api, upload } = __modules["js/logic/api.js"];
+const { actEffect, answerEffect, loginEffect, manyEffect, messageEffect, settingsEffect, stepEffect } = __modules["js/logic/optimistic.js"];
+const { UNCONFIRMED_MS } = __modules["js/logic/selectors.js"];
+const { store } = __modules["js/logic/store.js"];
+const titleOf = (sessionId) => store.server?.sessions.find((s) => s.id === sessionId)?.taskTitle ?? '作業';
+
+/** Run `call` with `effect` shown from this instant; take the effect back if the server refuses. */
+async function withEffect(effect, call) {
+  const shown = store.optimistic(effect);
+  const r = await call();
+  if (r.status === 200) shown.confirm();
+  else shown.fail();
+  return r;
+}
+
+// ---- requests waiting for the human --------------------------------------------------------------------
+
+async function sendAnswer(item, answer) {
+  store.errors.delete(item.id);
+  const r = await withEffect(answerEffect(item.id, answer), () => api(`/api/items/${item.id}/answer`, { answer }));
+  setTimeout(() => store.changed(), UNCONFIRMED_MS + 300).unref?.(); // if it is still unconfirmed by then, bring it back
+  if (r.status !== 200) {
+    // The request is back in the inbox with the reason; say so in case the human has already moved on.
+    store.errors.set(item.id, r.body.error || `送信できませんでした (${r.status})`);
+    store.expanded.add(item.id);
+    store.notice(`回答を送れませんでした: ${store.errors.get(item.id)}`);
+  }
+  store.changed();
+  return r;
+}
+
+/** Collect the drafted answers of a question ticket. Returns { answers } or { missing: true }. */
+function collectAnswers(item) {
+  const draft = store.drafts.get(item.id) ?? {};
+  const answers = {};
+  for (const q of item.questions) {
+    const d = draft[q.id] ?? { picked: new Set(), free: '' };
+    const v = d.free.trim() ? [d.free.trim()] : [...d.picked];
+    if (!v.length) {
+      if (q.optional) continue;
+      return { missing: true };
+    }
+    answers[q.id] = v;
+  }
+  return { answers };
+}
+
+function submitAnswers(item) {
+  const r = collectAnswers(item);
+  if (r.missing) {
+    store.errors.set(item.id, 'まだ答えていない質問があります');
+    return store.changed();
+  }
+  return sendAnswer(item, { kind: 'answers', answers: r.answers });
+}
+
+const loadRaw = (ref) => api(`/api/raw/${ref}`);
+
+// ---- sessions ---------------------------------------------------------------------------------------------
+
+/** What each action is called when it has to be named in a message. */
+const ACTION_WORD = { interrupt: '中断', stop: 'プロセスの終了', cleanup: '残ったプロセスの終了', seen: '既読', archive: '片付け', unarchive: '一覧に戻す操作', check: '検証', accept: '完了', reopen: '作業に戻す操作', rename: '名前の変更', unsend: '取り消し', finish: '完了扱い' };
+
+/** One of: interrupt, stop, cleanup, seen, archive, unarchive, check, accept, reopen, rename, unsend, finish. */
+async function act(sessionId, action, body) {
+  store.errors.delete(sessionId);
+  const r = await withEffect(actEffect(sessionId, action, body), () => api(`/api/sessions/${sessionId}/${action}`, body ?? {}));
+  if (r.status !== 200) {
+    store.errors.set(sessionId, r.body.error || `失敗しました (${r.status})`);
+    // The human may be on another screen by now (the action looked done): tell them wherever they are.
+    store.notice(`「${titleOf(sessionId)}」の${ACTION_WORD[action] ?? action}ができませんでした: ${store.errors.get(sessionId)}`);
+  }
+  store.changed();
+  return r;
+}
+
+const markSeen = (sessionId) => withEffect(actEffect(sessionId, 'seen'), () => api(`/api/sessions/${sessionId}/seen`, {}));
+
+/** The same action on several sessions: all of them change at once on screen, the server is asked one by one. */
+async function actOnMany(sessions, action) {
+  const shown = store.optimistic(manyEffect(sessions.map((x) => x.id), action));
+  let failed = 0;
+  for (const x of sessions) if ((await api(`/api/sessions/${x.id}/${action}`, {})).status !== 200) failed++;
+  if (failed) {
+    shown.fail();
+    store.notice(`${failed}件の作業で${ACTION_WORD[action]}ができませんでした`);
+  } else shown.confirm();
+}
+const markAllSeen = (sessions) => actOnMany(sessions, 'seen');
+/** Put several finished sessions away. */
+const archiveAll = (sessions) => actOnMany(sessions, 'archive');
+
+let outboxId = 0;
+/**
+ * Say something to a session. The words show in its conversation at once (store.outbox) and the agent shows as
+ * working; they are taken back, with the reason, if they could not be sent.
+ */
+async function sendMessage(sessionId, text) {
+  const mine = { id: ++outboxId, text, at: Date.now() };
+  const box = store.outbox.get(sessionId) ?? store.outbox.set(sessionId, []).get(sessionId);
+  box.push(mine);
+  const r = await withEffect(messageEffect(sessionId, text), () => api(`/api/sessions/${sessionId}/message`, { text }));
+  const drop = () => {
+    const at = box.indexOf(mine);
+    if (at >= 0) box.splice(at, 1);
+  };
+  if (r.status !== 200 || r.body.deferred) drop(); // not sent: it never happened. Held: the "send when finished" box shows it.
+  else {
+    // Sent: it stays on screen until the conversation record shows it (confirmSent), or a while at most.
+    mine.sent = true;
+    setTimeout(() => { drop(); store.changed(); }, 60_000).unref?.();
+  }
+  store.changed();
+  return r;
+}
+
+/** The conversation record now shows `count` more of the human's messages: drop that many provisional copies. */
+function confirmSent(sessionId, count) {
+  const box = store.outbox.get(sessionId);
+  if (!box || !count) return;
+  for (let n = 0; n < count; n++) {
+    const at = box.findIndex((m) => m.sent);
+    if (at < 0) break;
+    box.splice(at, 1);
+  }
+  store.changed();
+}
+
+const loadTranscript = (sessionId, range = {}) =>
+  api(`/api/sessions/${sessionId}/transcript${range.after !== undefined ? `?after=${range.after}` : range.before !== undefined ? `?before=${range.before}` : ''}`);
+
+/** Tick a step of the human's own to-do list. On failure the tick is taken back and the error recorded. */
+async function setStep(sessionId, index, done) {
+  store.errors.delete(sessionId);
+  const r = await withEffect(stepEffect(sessionId, index, done), () => api(`/api/sessions/${sessionId}/step`, { index, done }));
+  if (r.status !== 200) {
+    store.errors.set(sessionId, r.body.error || '更新できませんでした');
+    store.notice(`「${titleOf(sessionId)}」を更新できませんでした: ${store.errors.get(sessionId)}`);
+  }
+  store.changed();
+  return r;
+}
+
+const runCommand = (sessionId, command) => api(`/api/sessions/${sessionId}/run`, { command });
+
+/** Tell the agent how a command it asked for went. */
+const reportCommand = (sessionId, command, exitCode, output) =>
+  sendMessage(sessionId, `頼まれたコマンドを実行しました。\n\n$ ${command}\n終了コード: ${exitCode ?? '不明'}\n出力:\n${output || '（なし）'}`);
+
+// ---- new work ---------------------------------------------------------------------------------------------
+
+/**
+ * Start a piece of work. It shows in the rail at once (store.sending); the server is asked afterwards.
+ * `draft`: { text, suffix, provider, model, effort, approvalMode, planMode, codexPolicy, projectId, folder, projectName }.
+ * `hooks` let the screen follow along without this function knowing about it:
+ *   onQueued()            the work is in the rail: clear the input
+ *   afterQueued()         the screen has been redrawn
+ *   onProject(projectId)  which project it went to (a typed folder has been registered by now)
+ *   onFail(message, text) it could not be sent: put the words back
+ */
+async function startWork(draft, hooks = {}) {
+  const body = { provider: draft.provider, prompt: draft.text + draft.suffix, checkCommand: null, autoFix: false, model: draft.model || null, effort: draft.effort || null, approvalMode: draft.approvalMode, planMode: draft.planMode };
+  if (draft.provider === 'codex' && draft.codexPolicy && draft.approvalMode !== 'auto') body.codex = { approvalPolicy: draft.codexPolicy };
+  const entry = { title: draft.text.trim().replace(/\s+/g, ' ').slice(0, 40), provider: draft.provider, projectName: draft.projectName, sessionId: null, error: null };
+  store.sending.push(entry);
+  store.newDraft.prompt = '';
+  hooks.onQueued?.();
+  store.changed();
+  hooks.afterQueued?.();
+  const fail = (message) => {
+    entry.error = message;
+    if (!store.newDraft.prompt.trim()) store.newDraft.prompt = draft.text; // give the words back
+    hooks.onFail?.(message, draft.text);
+    store.changed();
+  };
+  let projectId = draft.projectId;
+  if (!projectId) {
+    const r = await api('/api/projects', { path: draft.folder });
+    if (r.status !== 200) return fail(r.body.error || 'フォルダを登録できませんでした');
+    projectId = r.body.projectId;
+    store.newDraft.folder = '';
+  }
+  hooks.onProject?.(projectId);
+  const r = await api('/api/sessions', { ...body, projectId });
+  if (r.status !== 200) return fail(r.body.error || '始められませんでした');
+  entry.sessionId = r.body.sessionId;
+  store.newDraft.sent = { id: r.body.sessionId, title: entry.title, at: Date.now() };
+  store.changed();
+}
+
+/** Work that the server now lists no longer needs its "sending" placeholder. */
+function dropArrivedSending() {
+  const { sending, state } = store;
+  for (let i = sending.length - 1; i >= 0; i--) if (sending[i].sessionId && state.sessions.some((x) => x.id === sending[i].sessionId)) sending.splice(i, 1);
+}
+
+function dismissSending(entry) {
+  store.sending.splice(store.sending.indexOf(entry), 1);
+}
+
+const loadModels = (provider) => api(`/api/models/${provider}`);
+const pickFolder = () => api('/api/pick-folder', {});
+const saveAttachment = (name, file) => upload(`/api/attachments?name=${encodeURIComponent(name)}`, file);
+
+// ---- accounts and usage -------------------------------------------------------------------------------------
+
+const startLogin = (provider) => withEffect(loginEffect(provider), () => api(`/api/auth/${provider}/login`, {}));
+const refreshAuth = (provider) => api(`/api/auth/${provider}/refresh`, {});
+
+/** Read the usage of both services and remember it for the screens that show it. */
+async function loadUsage() {
+  const r = await api('/api/usage');
+  if (r.status === 200) store.limitsCache = { at: Date.now(), data: r.body };
+  return r;
+}
+
+// ---- settings, stored data, the app itself ---------------------------------------------------------------------
+
+async function setSettings(patch) {
+  const r = await withEffect(settingsEffect(patch), () => api('/api/settings', patch));
+  if (r.status !== 200) store.notice(`設定を変えられませんでした: ${r.body.error || r.status}`);
+  return r;
+}
+const loadStorage = () => api('/api/storage');
+const purgeStorage = (olderThanDays) => api('/api/storage/purge', { olderThanDays });
+const loadAppUpdate = () => api('/api/app-update');
+const runAppUpdate = (kind) => api(`/api/app-update/${kind}`, {});
+
+const env = {
+  list: (projectId) => api(`/api/projects/${projectId}/env`),
+  set: (projectId, name, value) => api(`/api/projects/${projectId}/env/set`, { name, value }),
+  delete: (projectId, name) => api(`/api/projects/${projectId}/env/delete`, { name }),
+  reveal: (projectId, name) => api(`/api/projects/${projectId}/env/reveal`, { name }),
+};
+
+return { sendAnswer, collectAnswers, submitAnswers, loadRaw, act, markSeen, markAllSeen, archiveAll, sendMessage, confirmSent, loadTranscript, setStep, runCommand, reportCommand, startWork, dropArrivedSending, dismissSending, loadModels, pickFolder, saveAttachment, startLogin, refreshAuth, loadUsage, setSettings, loadStorage, purgeStorage, loadAppUpdate, runAppUpdate, env };
+})();
+__modules["js/logic/format.js"] = (() => {
+// Pure formatting of numbers and times.
+const mb = (b) => `${Math.round(b / 1048576)} MB`;
+const ago = (t) => {
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  return s < 60 ? '今' : s < 3600 ? `${Math.floor(s / 60)}分` : s < 86400 ? `${Math.floor(s / 3600)}時間` : `${Math.floor(s / 86400)}日`;
+};
+const agoWord = (t) => (ago(t) === '今' ? 'たった今' : `${ago(t)}前`);
+const clock = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const num = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
+const until = (t) => {
+  const m = Math.max(0, Math.round((t - Date.now()) / 60000));
+  return m < 60 ? `あと${m}分でリセット` : m < 1440 ? `あと${Math.round(m / 60)}時間でリセット` : `あと${Math.round(m / 1440)}日でリセット`;
+};
+
+return { mb, ago, agoWord, clock, num, until };
+})();
+__modules["js/ui/vocabulary.js"] = (() => {
+// Vocabulary: one lamp + one word per state. The only place that says how a state reads and looks.
+const { ticketKind } = __modules["js/logic/selectors.js"];
+const { icon, SVG } = __modules["js/ui/icons.js"];
+const STATE = {
+  queued: { word: '順番待ち', icon: 'clock', tone: 'dim' },
+  running: { word: '実行中', icon: 'running', tone: 'blue', spin: true },
+  waiting_for_user: { word: 'あなたの判断待ち', icon: 'attention', tone: 'amber' },
+  turn_finished: { word: '返答が完了', icon: 'done', tone: 'green' },
+  interrupted: { word: '中断', icon: 'pause', tone: 'dim' },
+  error: { word: '異常', icon: 'error', tone: 'red' },
+  unknown: { word: '状況不明', icon: 'question', tone: 'dim' },
+};
+const lamp = (lifecycle, cls = '') => {
+  const s = STATE[lifecycle] ?? STATE.unknown;
+  return icon(s.icon, `${s.tone} ${s.spin ? 'spin' : ''} ${cls}`);
+};
+/** What the evidence says about the task itself (a finished reply is not a finished task). */
+const VERDICT = {
+  validating: { word: '検証中', icon: 'running', tone: 'blue', spin: true },
+  needs_fix: { word: '検証に失敗', icon: 'fail', tone: 'red' },
+  candidate: { word: '検証に成功', icon: 'shield', tone: 'green' },
+  human_steps: { word: 'あなたの作業待ち', icon: 'user', tone: 'amber' },
+  accepted: { word: '完了済み', icon: 'done', tone: 'green' },
+};
+/** The reply ended, but the agent is waiting for its own background work and will go on by itself: running, yet idle. */
+const WAITING_BG = { word: 'バックグラウンド作業の終了待ち', icon: 'clock', tone: 'blue' };
+const waitsForBackground = (s) => s.lifecycle === 'running' && !!s.awaitingBackground;
+/** What is being done to a session right now because the human asked (shown from the click on). */
+const BUSY_WORD = { interrupt: '中断しています…', stop: 'プロセスを終了しています…', cleanup: '残ったプロセスを終了しています…', check: '検証を始めています…', finish: '完了として扱っています…' };
+/** One lamp per strip: the task verdict when there is one, otherwise the session state. */
+const lampFor = (s, cls = '') => {
+  const v = VERDICT[s.completion] ?? (waitsForBackground(s) ? WAITING_BG : null);
+  return v ? icon(v.icon, `${v.tone} ${v.spin ? 'spin' : ''} ${cls}`) : lamp(s.lifecycle, cls);
+};
+const wordFor = (s) => VERDICT[s.completion]?.word ?? (waitsForBackground(s) ? WAITING_BG.word : s.lifecycle === 'queued' && s.queuePosition ? `順番待ち ${s.queuePosition}番目` : (STATE[s.lifecycle] ?? STATE.unknown).word);
+/** The one line under a title that says what a session is doing this moment (null: nothing worth a line). */
+const nowLine = (s) =>
+  s.busyWith && BUSY_WORD[s.busyWith] ? BUSY_WORD[s.busyWith]
+    : waitsForBackground(s) ? `終了待ち: ${(s.background ?? []).join('、') || 'バックグラウンドの作業'}`
+      : s.lifecycle === 'running' && s.activity ? s.activity.text : null;
+const DECISION = {
+  accept: { word: '許可する', icon: 'check', cls: 'primary' },
+  acceptForSession: { word: 'この作業の間は常に許可', icon: 'shield', cls: '' },
+  decline: { word: '拒否する', icon: 'x', cls: 'danger' },
+  cancel: { word: '拒否して作業を止める', icon: 'stop', cls: 'danger' },
+};
+const PROVIDER = { claude: 'Claude Code', codex: 'Codex' };
+/** The agent's mark, used wherever a row needs to say which agent it belongs to. */
+const ptag = (p) => {
+  const s = icon(p in PROVIDER ? p : 'agent', 's dim');
+  const t = document.createElementNS(SVG, 'title');
+  t.textContent = PROVIDER[p] ?? p;
+  s.append(t);
+  return s;
+};
+const EFFORT = { none: 'なし', minimal: '最小', low: '低', medium: '中', high: '高', xhigh: '最高', max: '最大', ultra: 'ウルトラ' };
+const APPROVAL = { ask: '毎回わたしが決める', edits: 'ファイル編集は自動で許可', auto: 'エージェントの審査に任せる' };
+const APPROVAL_OPTS = [
+  { value: 'ask', label: APPROVAL.ask, short: '毎回確認', icon: 'user' },
+  { value: 'edits', label: APPROVAL.edits, short: '編集は自動', icon: 'file' },
+  { value: 'auto', label: APPROVAL.auto, short: '審査に任せる', icon: 'shield' },
+];
+
+/** The word and icon for each kind of request. */
+const KIND = {
+  question_from_reply: { icon: 'question', word: '質問（返答の文章から）' },
+  input: { icon: 'plug', word: '入力の依頼' },
+  question: { icon: 'question', word: '質問' },
+  plan: { icon: 'plan', word: '計画の承認' },
+  file_change: { icon: 'file', word: 'ファイル変更の承認' },
+  external_tool: { icon: 'plug', word: '外部ツールの承認' },
+  command: { icon: 'terminal', word: 'コマンドの承認' },
+  approval: { icon: 'shield', word: '承認' },
+};
+const kindOf = (item) => KIND[ticketKind(item)];
+
+return { STATE, lamp, VERDICT, waitsForBackground, BUSY_WORD, lampFor, wordFor, nowLine, DECISION, PROVIDER, ptag, EFFORT, APPROVAL, APPROVAL_OPTS, kindOf };
+})();
+__modules["js/ui/login-notice.js"] = (() => {
+const { refreshAuth, startLogin } = __modules["js/logic/actions.js"];
+const { store } = __modules["js/logic/store.js"];
+const { el } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+const { PROVIDER } = __modules["js/ui/vocabulary.js"];
+/** Shown wherever a signed-out service matters. Signing in happens on the provider's own page; we start it and watch. */
+function loginNotice(p) {
+  const a = store.state.auth[p];
+  const err = el('span', { class: 'err' });
+  const start = async (btn) => {
+    btn.disabled = true;
+    const r = await startLogin(p);
+    if (r.status !== 200) { err.textContent = r.body.error || 'ログインを開始できませんでした'; btn.disabled = false; }
+  };
+  return el('div', { class: 'auth-alert', role: 'alert' }, icon('login', 'amber'),
+    el('div', {},
+      el('strong', {}, `${PROVIDER[p]} からログアウトされています`),
+      a.loginInProgress
+        ? el('div', { class: 'note' }, icon('running', 's spin'), ' ブラウザで開いたページでログインしてください。完了すると自動で反映されます。')
+        : el('div', { class: 'note' }, 'ログインするまで、このエージェントの作業は始められません。'),
+      el('div', { class: 'acts' },
+        el('button', { class: 'primary', onclick: (e) => start(e.currentTarget) }, icon('login', 's'), a.loginInProgress ? 'もう一度開く' : 'ログインする'),
+        a.loginInProgress && el('button', { class: 'quiet', onclick: () => refreshAuth(p) }, '確認する'), err)));
+}
+
+return { loginNotice };
+})();
+__modules["js/ui/shell.js"] = (() => {
+// What every screen shares: where we are, how to go elsewhere, how to ask for a redraw.
+const { parseRoute } = __modules["js/logic/route.js"];
+const { store } = __modules["js/logic/store.js"];
+const { $ } = __modules["js/ui/dom.js"];
+/** UI-only state: the screen that is built right now, and a one-shot wish to focus the reply box. */
+const ui = {
+  /** { key, update(route) } */
+  view: null,
+  /** Set when a session is opened with Tab, so typing can continue without the mouse. */
+  focusComposer: false,
+};
+
+const route = () => parseRoute(location.hash);
+
+/** Redraw now. (The app subscribes to the store; this is the same signal logic uses.) */
+const render = () => store.changed();
+
+const go = (hash) => {
+  if (location.hash === hash) render();
+  else location.hash = hash;
+};
+
+const banner = (text) => {
+  $('banner').hidden = !text;
+  $('banner').textContent = text || '';
+};
+
+return { ui, route, render, go, banner };
+})();
+__modules["js/ui/rail.js"] = (() => {
+// Rail: the strip board. Every piece of work that is not put away, as one strip, grouped by what it waits for.
+const { archiveAll, dismissSending, dropArrivedSending } = __modules["js/logic/actions.js"];
+const { ago, mb } = __modules["js/logic/format.js"];
+const { quietFor, railModel } = __modules["js/logic/selectors.js"];
+const { store } = __modules["js/logic/store.js"];
+const { $, el, put, sync } = __modules["js/ui/dom.js"];
+const { icon, orrery } = __modules["js/ui/icons.js"];
+const { loginNotice } = __modules["js/ui/login-notice.js"];
+const { go, render } = __modules["js/ui/shell.js"];
+const { lampFor, nowLine, ptag, waitsForBackground, wordFor } = __modules["js/ui/vocabulary.js"];
+let rail = null;
+function buildRail() {
+  // Four lamps with counts. The first one is also the way back to the inbox.
+  const tally = el('div', { class: 'tally', role: 'status' });
+  const cells = {};
+  for (const [k, label, ic, tone] of [['attention', '要対応', 'inbox', 'amber'], ['running', '実行中', 'running', 'blue'], ['finished', '返答が完了', 'done', 'green'], ['problems', '異常', 'error', 'red']]) {
+    cells[k] = el('b', {}, '0');
+    tally.append(k === 'attention'
+      ? el('button', { class: 'home', onclick: () => go('#/'), title: `${label} (i)`, 'aria-label': label }, icon(ic, tone), cells[k])
+      : el('div', { title: label }, icon(ic, tone), el('span', { class: 'sr-only' }, label), cells[k]));
+  }
+  const home = tally.firstChild;
+  const groups = el('div', {});
+  const sendingBox = el('div', { class: 'sending-box' });
+  const authBox = el('div', { class: 'auth-box' });
+  const ram = el('span', {});
+  const archiveBtn = el('button', { class: 'quiet', onclick: () => go('#/archive'), title: 'アーカイブした作業' }, icon('archive', 's'), el('span', {}));
+  $('rail').replaceChildren(
+    el('div', { class: 'rail-top' }, orrery(2, 'mark'), el('span', { class: 'brand' }, 'Orrery'), el('button', { class: 'primary ib', onclick: () => go('#/new'), title: '新しい作業を始める (n)', 'aria-label': '新しい作業' }, icon('plus'))),
+    tally,
+    authBox,
+    el('div', { class: 'rail-scroll' }, sendingBox, groups),
+    el('div', { class: 'rail-foot' }, el('span', { class: 'grow', title: '' }, icon('chip', 's'), ram), el('button', { class: 'quiet', onclick: () => go('#/usage'), title: '利用状況（利用枠、トークン、ログイン）', 'aria-label': '利用状況' }, icon('gauge', 's')), el('button', { class: 'quiet', onclick: () => go('#/settings'), title: '設定（同時実行数、環境変数）', 'aria-label': '設定' }, icon('sliders', 's')), archiveBtn));
+  rail = { cells, home, groups, sendingBox, authBox, ram, archiveBtn, sections: new Map() };
+}
+/** Minutes without a sign of life, for a session that should be showing some (not one that is knowingly waiting). */
+const quiet = (s) => (s.busyWith || waitsForBackground(s) || s.lifecycle !== 'running' ? 0 : quietFor(s));
+
+function strip(s, selected, pending) {
+  return el('button', { class: 'strip', 'aria-current': selected ? 'page' : null, onclick: () => go(`#/s/${s.id}`), title: `${wordFor(s)}: ${s.taskTitle}` },
+    lampFor(s),
+    el('span', { class: 't' }, s.taskTitle),
+    s.unread ? el('span', { class: 'new-dot', title: '結果をまだ見ていません' }) : pending ? el('span', { class: 'amber' }, String(pending)) : el('span', {}),
+    el('span', { class: 'sub' }, ptag(s.provider), el('span', { class: 'p' }, s.projectName), el('span', { class: 'age' }, ago(s.lifecycleSince ?? s.updatedAt))),
+    nowLine(s) && el('span', { class: 'now' + (quiet(s) ? ' quiet' : '') }, quiet(s) ? `${quiet(s)}分動きなし: ${s.activity.text}` : nowLine(s)),
+    s.deferredMessage && el('span', { class: 'now', title: '終わったら送る指示があります' }, icon('send', 's'), el('span', { class: 'sr-only' }, '終わったら送る指示あり')));
+}
+
+function renderRail(r) {
+  if (!rail) buildRail();
+  const c = store.state.counts;
+  const model = railModel(store.state, store.showAllFinished);
+  const { needsYou, live, pendingBy } = model;
+  for (const [k, n] of [['attention', needsYou], ['running', c.running], ['finished', c.turnFinished], ['problems', c.problems]]) {
+    rail.cells[k].textContent = n;
+    rail.cells[k].parentElement.classList.toggle('zero', !n);
+  }
+  if (r.view === 'inbox') rail.home.setAttribute('aria-current', 'page');
+  else rail.home.removeAttribute('aria-current');
+  rail.ram.textContent = store.state.resources.processCount ? `${store.state.resources.processCount} × ${mb(store.state.resources.workingSetBytes)}` : '—';
+  rail.ram.parentElement.title = store.state.resources.processCount ? `${store.state.resources.processCount}プロセス。${store.state.resources.scope}` : 'エージェントは動いていません';
+  rail.archiveBtn.lastChild.textContent = c.archived ? String(c.archived) : '';
+  const authSig = JSON.stringify(store.state.auth);
+  if (rail.authBox.dataset.sig !== authSig) {
+    rail.authBox.dataset.sig = authSig;
+    put(rail.authBox, ['claude', 'codex'].filter((p) => store.state.auth[p].loggedIn === false).map((p) => loginNotice(p)));
+  }
+
+  // Work just sent stays here until the control room lists it as a session.
+  dropArrivedSending();
+  put(rail.sendingBox, store.sending.map((x) => el('button', { class: 'strip sending' + (x.error ? ' failed' : ''), title: x.error ? `送れませんでした: ${x.error}` : '送信しています', onclick: () => { if (x.error) { dismissSending(x); go('#/new'); } } },
+    x.error ? icon('error', 's red') : icon('running', 's blue spin'),
+    el('span', { class: 't' }, x.title),
+    el('span', { class: x.error ? 'red' : 'note' }, x.error ? '送れませんでした' : '送信中'),
+    el('span', { class: 'sub' }, ptag(x.provider), el('span', { class: 'p' }, x.projectName), x.error && el('span', { class: 'age' }, '入力欄に戻しました')))));
+  // How each group reads; which sessions are in it is decided by the logic layer (railModel).
+  const LOOK = {
+    wait: { label: 'あなたの判断待ち', icon: 'attention', tone: 'amber' },
+    run: { label: '実行中', icon: 'running', tone: 'blue' },
+    queue: { label: store.state.queue.blockedBy === 'memory' ? '順番待ち（空きメモリ不足）' : `順番待ち（同時に${store.state.settings.maxConcurrent}件まで）`, icon: 'clock', tone: 'dim' },
+    bad: { label: '異常・中断', icon: 'error', tone: 'red' },
+    done: { label: '返答が完了', icon: 'done', tone: 'green' },
+  };
+  for (const g of model.groups) {
+    const d = { ...g, ...LOOK[g.key] };
+    let sec = rail.sections.get(d.key);
+    if (!sec) {
+      const count = el('span', { class: 'n' });
+      const head = el('div', { class: 'group' }, icon(d.icon, `s ${d.tone}`), el('span', { class: 'sr-only' }), count);
+      const body = el('div', {});
+      const more = el('button', { class: 'quiet more', hidden: true, onclick: () => { store.showAllFinished = !store.showAllFinished; render(); } });
+      sec = { head, body, count, more };
+      rail.sections.set(d.key, sec);
+      rail.groups.append(head, body, more);
+    }
+    const total = d.total ?? d.list.length;
+    sec.head.hidden = total === 0;
+    sec.count.textContent = total;
+    sec.head.childNodes[1].textContent = d.label;
+    sec.head.title = d.label;
+    sync(sec.body, d.list, (s) => s.id,
+      (s) => [s.lifecycle, s.completion, s.queuePosition, s.unread, s.taskTitle, nowLine(s), quiet(s), !!s.deferredMessage, pendingBy.get(s.id) ?? 0, r.view === 'session' && r.id === s.id, ago(s.lifecycleSince ?? s.updatedAt)].join('|'),
+      (s) => strip(s, r.view === 'session' && r.id === s.id, pendingBy.get(s.id)));
+    if (d.key === 'done') {
+      sec.more.hidden = total <= 8;
+      sec.more.textContent = store.showAllFinished ? '新しい8件だけ表示' : `ほか${total - 8}件を表示`;
+      const seen = model.seenFinished;
+      if (!sec.tidy) {
+        sec.tidy = el('button', { class: 'quiet more', title: '結果を見終わった作業を一覧から片付けます。何も消えず、いつでも戻せます' });
+        sec.tidy.addEventListener('click', async () => {
+          const list = sec.tidy._list ?? [];
+          if (!list.length || !confirm(`結果を見終わった作業 ${list.length}件を片付けます。会話も履歴も消えません。`)) return;
+          await archiveAll(list);
+        });
+        sec.more.after(sec.tidy);
+      }
+      sec.tidy._list = seen;
+      sec.tidy.hidden = seen.length < 2;
+      sec.tidy.textContent = `見終わった${seen.length}件を片付ける`;
+    }
+  }
+  let empty = rail.groups.querySelector('.rail-empty');
+  if (!live.length && !store.sending.length && !empty) rail.groups.prepend(el('div', { class: 'rail-empty' }, 'まだ作業がありません'));
+  else if ((live.length || store.sending.length) && empty) empty.remove();
+}
+
+return { renderRail };
+})();
+__modules["js/ui/views/archive.js"] = (() => {
+const { act } = __modules["js/logic/actions.js"];
+const { store } = __modules["js/logic/store.js"];
+const { $, el, sync } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+const { go } = __modules["js/ui/shell.js"];
+const { lamp, ptag } = __modules["js/ui/vocabulary.js"];
+function archiveView() {
+  const list = el('div', {});
+  const empty = el('p', { class: 'note' }, '片付けた作業はありません。');
+  $('main').replaceChildren(el('div', { class: 'pad' }, el('h1', {}, icon('archive', 'l'), '片付けた作業', el('button', { class: 'quiet narrow-only', onclick: () => go('#/') }, icon('back', 's'), '戻る')), el('p', { class: 'note' }, '会話も履歴もそのまま残っています。'), list, empty));
+  return {
+    key: 'archive',
+    update() {
+      const arch = store.state.sessions.filter((s) => s.archived);
+      empty.hidden = arch.length > 0;
+      sync(list, arch, (s) => s.id, (s) => `${s.lifecycle}|${s.taskTitle}`, (s) =>
+        el('div', { class: 'row' }, lamp(s.lifecycle),
+          el('button', { class: 'quiet', onclick: () => go(`#/s/${s.id}`) }, ptag(s.provider), s.taskTitle),
+          el('button', { onclick: () => act(s.id, 'unarchive') }, icon('restore', 's'), '一覧に戻す'),
+          el('span', { class: 'x' }, `${s.projectName}  ${new Date(s.updatedAt).toLocaleString()}`)));
+    },
+  };
+}
+
+return { archiveView };
+})();
+__modules["js/ui/views/env.js"] = (() => {
+const { env } = __modules["js/logic/actions.js"];
+const { store } = __modules["js/logic/store.js"];
+const { $, el, put } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+const { go } = __modules["js/ui/shell.js"];
+function envView(projectId) {
+  const project = store.state.projects.find((p) => p.id === projectId);
+  if (!project) {
+    $('main').replaceChildren(el('div', { class: 'pad' }, el('h1', {}, 'このプロジェクトは見つかりません'), el('button', { onclick: () => go('#/settings') }, icon('back', 's'), '設定に戻る')));
+    return { key: `env:${projectId}`, update() {} };
+  }
+  const list = el('div', {});
+  const name = el('input', { type: 'text', placeholder: '変数名（例: DATABASE_URL）', autocomplete: 'off', spellcheck: 'false' });
+  const value = el('input', { type: 'password', placeholder: '値', autocomplete: 'new-password' });
+  const err = el('div', { class: 'err', role: 'alert' });
+  const shown = new Map(); // name -> revealed value (only while this screen is open)
+  let vars = [];
+  const load = async () => {
+    const r = await env.list(projectId);
+    if (r.status === 200) vars = r.body.vars;
+    paint();
+  };
+  const paint = () => {
+    put(list, vars.length ? vars.map((v) => el('div', { class: 'row env' }, icon('key', 'dim'),
+      el('code', {}, v.name),
+      el('span', { class: 'env-acts' },
+        el('button', { class: 'quiet', onclick: async () => { if (shown.has(v.name)) { shown.delete(v.name); return paint(); } const r = await env.reveal(projectId, v.name); if (r.status === 200) { shown.set(v.name, r.body.value); paint(); } } }, icon('eye', 's'), shown.has(v.name) ? '隠す' : '見る'),
+        el('button', { class: 'quiet danger', onclick: async () => { if (!confirm(`${v.name} を削除します。`)) return; await env.delete(projectId, v.name); shown.delete(v.name); load(); } }, icon('trash', 's'), '削除')),
+      el('span', { class: 'x' }, shown.has(v.name) ? el('code', {}, shown.get(v.name)) : `${'•'.repeat(Math.min(12, v.length))}（${v.length}文字）`))) : el('p', { class: 'note' }, 'まだ設定されていません。'));
+  };
+  const form = el('form', { class: 'env-new' }, name, value, el('button', { class: 'primary', type: 'submit' }, icon('plus', 's'), '保存'));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const r = await env.set(projectId, name.value.trim(), value.value);
+    if (r.status !== 200) return void (err.textContent = r.body.error || '保存できませんでした');
+    err.textContent = '';
+    shown.delete(name.value.trim());
+    name.value = '';
+    value.value = '';
+    load();
+    name.focus();
+  });
+  $('main').replaceChildren(el('div', { class: 'pad' },
+    el('h1', {}, icon('key', 'l'), `${project.name} の環境変数`, el('button', { class: 'quiet narrow-only', onclick: () => go('#/settings') }, icon('back', 's'), '戻る')),
+    el('p', { class: 'note' }, 'このプロジェクトで始める作業のエージェントと、検証コマンドに渡されます。値はWindowsのユーザー単位の暗号化（DPAPI）で保存し、会話の記録や画面では変数名に置き換えて表示します。'),
+    el('p', { class: 'note' }, '注意: コマンドを実行できるエージェントは、渡された値を読めます。本番用の強い権限の値は入れないでください。次に始める作業から反映されます。'),
+    list, el('h2', {}, icon('plus'), '追加・上書き'), form, err));
+  load();
+  return { key: `env:${projectId}`, update() {} };
+}
+
+return { envView };
+})();
+__modules["js/logic/text.js"] = (() => {
+// Reading what agents wrote: which spans are commands, and how a recorded tool entry reads as one line.
+// Pure: returns data, the UI decides how it looks.
+
+/** Does this inline code look like a shell command a person would run? */
+const COMMAND = /^(gh|git|npm|pnpm|yarn|npx|node|python|python3|py|pip|uv|docker|docker-compose|vercel|netlify|cargo|make|dotnet|az|aws|gcloud|kubectl|terraform|supabase|firebase|wrangler|flyctl|heroku|deno|bun|go|pytest|ruff|curl|pwsh|powershell|winget|scoop|choco|code)\s+\S/;
+const looksLikeCommand = (t) => t.length <= 400 && !t.includes('\n') && COMMAND.test(t.trim());
+
+/**
+ * Agent prose split into parts: { kind: 'text' | 'block' | 'code', text, command }.
+ * 'block' is a fenced code block, 'code' an inline span; `command` is set when the part is a runnable command.
+ */
+function richParts(text) {
+  const out = [];
+  const re = /```[a-zA-Z0-9_-]*\n([\s\S]*?)```|`([^`\n]+)`/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push({ kind: 'text', text: text.slice(last, m.index), command: null });
+    if (m[1] !== undefined) {
+      const body = m[1].replace(/\n$/, '');
+      out.push({ kind: 'block', text: body, command: looksLikeCommand(body.trim()) ? body.trim() : null });
+    } else {
+      out.push({ kind: 'code', text: m[2], command: looksLikeCommand(m[2]) ? m[2].trim() : null });
+    }
+    last = re.lastIndex;
+  }
+  if (last < text.length) out.push({ kind: 'text', text: text.slice(last), command: null });
+  return out;
+}
+
+/** Turn a recorded tool entry into one readable line (+ the full text on demand). Display only; the record is untouched. */
+function toolSummary(text) {
+  const short = (v, n = 110) => (v.length > n ? v.slice(0, n) + '…' : v);
+  const call = text.match(/^▶ (\S+) ([\s\S]*)$/);
+  if (call) {
+    let hint = '';
+    let pretty = call[2];
+    try {
+      const j = JSON.parse(call[2]);
+      pretty = JSON.stringify(j, null, 2);
+      hint = j.command ?? j.file_path ?? j.pattern ?? j.path ?? j.url ?? j.questions?.[0]?.question ?? j.plan ?? '';
+    } catch {}
+    return { glyph: 'terminal', line: short(`${call[1]}  ${String(hint).split('\n')[0]}`), more: pretty };
+  }
+  const result = text.match(/^([✔✖]) ([\s\S]*)$/);
+  if (result) {
+    const first = result[2].split('\n')[0];
+    const long = result[2].includes('\n') || first.length > 110;
+    return { glyph: result[1] === '✔' ? 'check' : 'x', line: short(first), more: long ? result[2] : null };
+  }
+  const nl = text.indexOf('\n');
+  if (nl < 0) return { glyph: 'terminal', line: short(text, 160), more: text.length > 160 ? text : null };
+  return { glyph: 'terminal', line: short(text.slice(0, nl), 160), more: text.slice(nl + 1).trim() ? text : null };
+}
+
+return { looksLikeCommand, richParts, toolSummary };
+})();
+__modules["js/ui/task-parts.js"] = (() => {
+// Parts of a piece of work that several screens show: commands the agent asked for, the human's own steps,
+// and the verdict on the work with its evidence.
+const { act, reportCommand, runCommand, setStep } = __modules["js/logic/actions.js"];
+const { clock } = __modules["js/logic/format.js"];
+const { richParts } = __modules["js/logic/text.js"];
+const { store } = __modules["js/logic/store.js"];
+const { el, put } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+const { go, route } = __modules["js/ui/shell.js"];
+const { VERDICT } = __modules["js/ui/vocabulary.js"];
+/** Run a command the agent asked for, after showing exactly what will run and where. The result appears under `host`. */
+async function runAndShow(sessionId, command, btn, host) {
+  const sess = store.state.sessions.find((x) => x.id === sessionId);
+  if (!sess || !confirm(`このコマンドを実行します。\n\n${command}\n\n場所: ${sess.cwd}`)) return;
+  btn.disabled = true;
+  host.parentElement?.querySelector(':scope > .run-result')?.remove();
+  const box = el('div', { class: 'run-result' }, icon('running', 's spin'), ' 実行中…');
+  host.after(box);
+  const r = await runCommand(sessionId, command);
+  btn.disabled = false;
+  if (r.status !== 200) return void put(box, icon('fail', 's red'), ' ', r.body.error || `実行できませんでした (${r.status})`);
+  const { ok, exitCode, output } = r.body;
+  const told = el('span', { class: 'note' });
+  const tell = el('button', { class: ok ? '' : 'primary', onclick: async () => {
+    tell.disabled = true;
+    const m = await reportCommand(sessionId, command, exitCode, output);
+    told.textContent = m.status !== 200 ? (m.body.error || '送れませんでした') : m.body.deferred ? 'いまの作業が終わったら届きます。' : 'エージェントに伝えました。';
+  } }, icon('send', 's'), ok ? '結果をエージェントに伝える' : '失敗をエージェントに伝えて直してもらう');
+  box.className = `run-result ${ok ? 'ok' : 'ng'}`;
+  put(box, el('div', { class: 'run-head' }, icon(ok ? 'check' : 'fail', `s ${ok ? 'green' : 'red'}`), el('strong', {}, ok ? '成功しました' : `失敗しました（終了コード ${exitCode ?? '不明'}）`)),
+    output && el('pre', {}, output), el('div', { class: 'acts' }, tell, told));
+}
+function cmdButton(sessionId, command) {
+  const b = el('button', { type: 'button', class: 'cmd', title: 'クリックで、この作業のフォルダで実行します（実行前に確認が出ます）' }, command);
+  b.addEventListener('click', () => runAndShow(sessionId, command, b, b.closest('.msg, li, .ticket, .steps') ?? b));
+  return b;
+}
+/** The human's own to-do list for a task whose agent work is finished. Ticking the last box finishes the task. */
+function stepsBox(sess, { titled }) {
+  const steps = sess.task.humanSteps ?? [];
+  const left = steps.filter((x) => !x.done).length;
+  return el('section', { class: 'steps' },
+    el('div', { class: 'steps-head' }, icon('user', 'amber'),
+      titled ? el('button', { class: 'quiet t', onclick: () => go(`#/s/${sess.id}`) }, sess.taskTitle) : el('strong', {}, 'あなたの作業'),
+      el('span', { class: 'note' }, `残り${left}件。すべて済ませると、この作業は完了になります。`)),
+    el('ol', {}, steps.map((st, i) => {
+      const box = el('input', { type: 'checkbox', 'aria-label': `${st.title} を済みにする` });
+      box.checked = st.done;
+      box.addEventListener('change', () => {
+        // Ticking the last one finishes the work: it is put away at once (and comes back, with the reason, if that fails).
+        const finishes = box.checked && steps.every((x, j) => j === i || x.done);
+        setStep(sess.id, i, box.checked);
+        if (finishes && route().view === 'session') go('#/');
+      });
+      return el('li', { class: st.done ? 'done' : '' }, el('label', {}, box, el('span', { class: 'st' }, st.title)),
+        // A step that has to wait for something says so, so it is not done too early.
+        st.after && !st.done && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${st.after}`),
+        st.detail && el('div', { class: 'note' }, st.detail), st.command && cmdButton(sess.id, st.command));
+    })),
+    store.errors.has(sess.id) && el('div', { class: 'err' }, store.errors.get(sess.id)));
+}
+const stepsSig = (x) => JSON.stringify([x.taskTitle, x.task?.humanSteps, store.errors.get(x.id)]);
+
+/** One line of evidence for a checked task: what ran, how it exited, what is left uncommitted. */
+function evidenceLine(s) {
+  const v = s.task?.validation;
+  if (!v) return '';
+  const left = v.uncommittedFiles === null ? '' : v.uncommittedFiles ? `、未コミットの変更 ${v.uncommittedFiles}件` : '、未コミットの変更なし';
+  return `${v.command} が終了コード ${v.exitCode ?? '不明'} で${v.ok ? '成功' : '失敗'}（${clock(v.at)}）${left}`;
+}
+
+function verdictNodes(s) {
+  const t = s.task;
+  if (!t) return [];
+  if (s.completion === 'human_steps') return [stepsBox(s, { titled: false })];
+  const id = s.id;
+  const v = t.validation;
+  const def = VERDICT[s.completion];
+  const evidence = v && el('details', { class: 'raw' }, el('summary', {}, evidenceLine(s)), el('div', { class: 'subject' }, el('pre', {}, v.outputTail || '（出力なし）')));
+  const recheck = t.checkCommand && s.lifecycle === 'turn_finished' && !t.validating && el('button', { onclick: () => act(id, 'check') }, icon('restore', 's'), '検証をやり直す');
+  if (s.completion === 'accepted') return [el('div', { class: 'verdict-line' }, icon(def.icon, def.tone), el('strong', {}, def.word), el('button', { onclick: () => act(id, 'reopen') }, icon('restore', 's'), '作業に戻す')), evidence];
+  if (s.completion === 'validating') return [el('div', { class: 'verdict-line' }, icon(def.icon, `${def.tone} spin`), el('strong', {}, def.word), el('code', {}, t.checkCommand))];
+  if (s.completion === 'candidate') return [el('div', { class: 'verdict-line' }, icon(def.icon, def.tone), el('strong', {}, def.word), el('button', { class: 'primary', onclick: () => { act(id, 'accept'); go('#/'); } }, icon('check', 's'), '完了にする'), recheck), evidence];
+  if (s.completion === 'needs_fix') {
+    const auto = t.autoFix ? (t.fixRounds >= t.maxFixRounds ? `自動の修正依頼は上限の${t.maxFixRounds}回に達しました。` : `エージェントに修正を依頼します（${t.fixRounds}/${t.maxFixRounds}回）。`) : '下の欄から修正を指示できます。';
+    return [el('div', { class: 'verdict-line' }, icon(def.icon, def.tone), el('strong', { class: 'red' }, def.word), el('span', { class: 'note' }, auto), recheck), evidence];
+  }
+  if (s.completion === 'unverified') {
+    return [el('div', { class: 'verdict-line' }, el('button', { onclick: () => { act(id, 'accept'); go('#/'); } }, icon('check', 's'), '完了にする'))];
+  }
+  return t.checkCommand ? [el('div', { class: 'verdict-line' }, icon('shield', 'dim'), el('span', { class: 'note' }, '返答が終わるたびに検証します: '), el('code', {}, t.checkCommand))] : [];
+}
+
+/** Agent prose with its code spans kept as code; spans that are commands become clickable. Everything else stays plain text. */
+function richText(text, sessionId) {
+  return richParts(text).map((p) =>
+    p.kind === 'text' ? p.text
+      : p.kind === 'block' ? el('pre', { class: 'code' }, p.command ? cmdButton(sessionId, p.command) : p.text)
+        : p.command ? cmdButton(sessionId, p.command) : el('code', {}, p.text));
+}
+
+return { cmdButton, stepsBox, stepsSig, evidenceLine, verdictNodes, richText };
+})();
+__modules["js/ui/ticket.js"] = (() => {
+const { loadRaw, sendAnswer, submitAnswers } = __modules["js/logic/actions.js"];
+const { ago } = __modules["js/logic/format.js"];
+const { toggleTicket } = __modules["js/logic/selectors.js"];
+const { store } = __modules["js/logic/store.js"];
+const { el } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+const { go, render } = __modules["js/ui/shell.js"];
+const { DECISION, kindOf, ptag } = __modules["js/ui/vocabulary.js"];
+// Request tickets (shared by the inbox and the session screen).
+function questionBody(item) {
+  const draft = store.drafts.get(item.id) ?? store.drafts.set(item.id, {}).get(item.id);
+  const locked = item.status !== 'pending';
+  let n = 0;
+  const blocks = item.questions.map((q, qi) => {
+    const d = draft[q.id] ?? (draft[q.id] = { picked: new Set(), free: '' });
+    return el('div', {},
+      el('div', { class: 'ask' }, q.text, q.optional && el('span', { class: 'opt-mark' }, '任意')),
+      q.options.map((o) => {
+        const key = ++n;
+        const input = el('input', { type: q.multiSelect ? 'checkbox' : 'radio', name: `${item.id}-${qi}`, disabled: locked, 'data-key': key <= 9 ? key : null });
+        input.checked = d.picked.has(o.label);
+        input.addEventListener('change', () => {
+          if (!q.multiSelect) d.picked.clear();
+          if (input.checked) d.picked.add(o.label);
+          else d.picked.delete(o.label);
+        });
+        return el('label', { class: 'choice' }, input, el('span', { class: 'lab' }, o.label, o.description && el('small', {}, o.description)), key <= 9 && el('kbd', {}, String(key)));
+      }),
+      q.multiSelect && el('div', { class: 'note' }, '複数選べます'),
+      q.allowFreeText && (() => {
+        const t = el('input', { type: q.isSecret ? 'password' : 'text', placeholder: q.options.length ? 'ほかの答えを入力（入力した内容が優先されます）' : '答えを入力', value: d.free, disabled: locked, autocomplete: 'off', 'aria-label': `${q.text} の自由入力` });
+        t.addEventListener('input', () => { d.free = t.value; });
+        return t;
+      })());
+  });
+  const submit = () => submitAnswers(item);
+  return [
+    (item.questions.length > 1 || (item.allowDecline && item.summary !== item.questions[0]?.text)) && el('div', { class: 'note' }, item.summary),
+    blocks,
+    el('div', { class: 'acts' },
+      item.allowDecline && el('button', { class: 'danger', disabled: locked, onclick: () => sendAnswer(item, { kind: 'decline' }) }, icon('x', 's'), '答えない'),
+      el('span', { class: 'grow' }),
+      el('kbd', { class: 'hint', title: 'Ctrl+Enterで送信' }, 'Ctrl+Enter'),
+      el('button', { class: 'primary', onclick: submit, disabled: locked, 'data-submit': true }, icon('send', 's'), '回答を送る')),
+  ];
+}
+
+function approvalBody(item) {
+  const a = item.approval;
+  const locked = item.status !== 'pending';
+  const canExplain = item.source.provider === 'claude';
+  const KINDWORD = { add: '新規', delete: '削除', update: '変更' };
+  const body = a.changes?.length
+    ? el('div', { class: 'diff' }, a.changes.map((c) => [
+        el('div', { class: 'file' }, icon('file', 's'), `${KINDWORD[c.kind] ?? c.kind}  ${c.path}`),
+        c.diff.split('\n').map((l) => el('div', { class: 'ln ' + (l.startsWith('+') && !l.startsWith('+++') ? 'add' : l.startsWith('-') && !l.startsWith('---') ? 'del' : l.startsWith('@@') ? 'hunk' : '') }, l || ' ')),
+      ]))
+    : el('div', { class: 'subject' }, el('pre', {}, a.subject ?? '対象の情報がありません。下の「生データ」で確認してください。'));
+  // The ticket head already names the kind of request; a headline is added only when it carries new information.
+  const fileName = (p) => p.split(/[\\/]/).pop();
+  const VERB = { add: 'を新しく作る', delete: 'を削除する', update: 'を書き換える' };
+  const headline = a.changes?.length ? a.changes.map((c) => `${fileName(c.path)} ${VERB[c.kind] ?? ''}`).join('、') : null;
+  return [
+    headline && el('div', { class: 'ask' }, headline),
+    body,
+    el('div', { class: 'facts' },
+      el('span', {}, icon('shield', 's'), el('code', {}, a.tool)),
+      a.cwd && el('span', {}, icon('folder', 's'), el('code', {}, a.cwd)),
+      a.reason && el('span', {}, icon('info', 's'), a.reason)),
+    canExplain && (() => {
+      const t = el('input', { type: 'text', class: 'reason', placeholder: '拒否する理由をエージェントに伝える（任意）', disabled: locked, value: store.notes.get(item.id) ?? '' });
+      t.addEventListener('input', () => store.notes.set(item.id, t.value));
+      return t;
+    })(),
+    (() => {
+      // Refusals at the left, permissions at the right, the plain "allow" at the far right.
+      const rank = (d) => ({ danger: 0, '': 1, primary: 2 })[DECISION[d]?.cls ?? ''];
+      const btn = (d) => {
+        const def = DECISION[d] ?? { word: d, icon: 'shield', cls: '' };
+        const message = () => (store.notes.get(item.id) ?? '').trim();
+        return el('button', { class: def.cls, disabled: locked, onclick: () => sendAnswer(item, { kind: 'decision', decision: d, ...(message() && d !== 'accept' ? { message: message() } : {}) }) }, icon(def.icon, 's'), def.word);
+      };
+      const order = [...a.decisions].sort((x, y) => rank(x) - rank(y));
+      return el('div', { class: 'acts' }, order.filter((d) => rank(d) === 0).map(btn), el('span', { class: 'grow' }), order.filter((d) => rank(d) > 0).map(btn));
+    })(),
+  ];
+}
+
+function ticket(item, { linkToSession = true, collapsible = false } = {}) {
+  const kind = kindOf(item);
+  const isExpanded = !collapsible || store.expanded.has(item.id);
+  const toggle = () => {
+    toggleTicket(store, item.id);
+    render();
+    requestAnimationFrame(() => document.querySelector(`[data-item="${item.id}"]`)?.focus());
+  };
+  const raw = el('pre', {}, '読み込み中…');
+  const details = el('details', { class: 'raw' }, el('summary', {}, '生データと発生元'),
+    el('div', { class: 'facts' },
+      el('span', {}, '要求ID ', el('code', {}, item.source.requestId)),
+      el('span', {}, 'セッションID ', el('code', {}, item.source.providerSessionId ?? '-')),
+      el('span', {}, '世代 ', el('code', {}, String(item.source.generation)))),
+    el('div', { class: 'subject' }, raw));
+  details.addEventListener('toggle', async () => {
+    if (!details.open || raw.dataset.loaded || !item.rawPayloadRef) return;
+    const r = await loadRaw(item.rawPayloadRef);
+    raw.textContent = r.status === 200 ? JSON.stringify(r.body, null, 2) : '生データを取得できませんでした';
+    raw.dataset.loaded = '1';
+  });
+  const head = el('div', { class: 'ticket-head' + (collapsible ? ' toggles' : '') },
+    collapsible && el('button', { type: 'button', class: 'quiet ib tg', 'aria-expanded': String(isExpanded), title: isExpanded ? '閉じる' : '開いて答える (Enter)', 'aria-label': isExpanded ? '閉じる' : '開く', onclick: toggle }, icon('down', 's')),
+    el('span', { class: 'kind' }, icon(kind.icon), item.status === 'answering' ? '送信しましたが、エージェントの受領を確認できていません' : kind.word),
+    linkToSession && el('button', { class: 'quiet where', title: 'この作業の画面を開く', onclick: () => go(`#/s/${item.sessionId}`) }, ptag(item.source.provider), item.taskTitle),
+    el('span', { class: 'age', title: new Date(item.createdAt).toLocaleString() }, icon('clock', 's'), ago(item.createdAt)));
+  if (collapsible) head.addEventListener('click', (e) => { if (!e.target.closest('button')) toggle(); });
+  if (!isExpanded) {
+    return el('section', { class: `ticket ${item.status} collapsed`, 'data-item': item.id, 'data-collapsed': '1', tabindex: '-1', 'aria-label': `${kind.word}: ${item.summary}（閉じています）` },
+      head, el('div', { class: 'ticket-sum', onclick: toggle }, item.type === 'user_question' ? (item.questions[0]?.text ?? item.summary) : (item.approval?.subject?.split('\n')[0] || item.summary)));
+  }
+  return el('section', { class: `ticket ${item.status}`, 'data-item': item.id, tabindex: '-1', 'aria-label': `${kind.word}: ${item.summary}` },
+    head,
+    item.type === 'user_question' ? questionBody(item) : approvalBody(item),
+    item.status === 'answering' && el('div', { class: 'note' }, '回答は送信済みです。エージェントが受け取ると自動で消えます。止まっているようなら、作業を開いて状態を確認してください。'),
+    store.errors.has(item.id) && el('div', { class: 'err', role: 'alert' }, store.errors.get(item.id)),
+    details);
+}
+const ticketSig = (i) => `${i.status}|${store.errors.get(i.id) ?? ''}|${Math.floor((Date.now() - i.createdAt) / 60000)}`;
+
+return { ticket, ticketSig };
+})();
+__modules["js/ui/views/inbox.js"] = (() => {
+// Inbox: the one place from which every piece of work is managed.
+// Top to bottom, most pressing first: requests to answer, the human's own steps, failed checks, work that can be
+// called done, work that stopped, finished replies, and what is still going. Every piece of work that is not put away
+// is in exactly one of these (see inboxModel), and each row carries the actions that make sense for it, so nothing
+// has to be opened just to answer, reply, finish, stop or put away.
+const { act, markAllSeen, sendMessage } = __modules["js/logic/actions.js"];
+const { ago, agoWord } = __modules["js/logic/format.js"];
+const { advanceAccordion, inboxModel } = __modules["js/logic/selectors.js"];
+const { store } = __modules["js/logic/store.js"];
+const { $, el, sync } = __modules["js/ui/dom.js"];
+const { icon, orrery } = __modules["js/ui/icons.js"];
+const { go, render } = __modules["js/ui/shell.js"];
+const { evidenceLine, stepsBox, stepsSig } = __modules["js/ui/task-parts.js"];
+const { ticket, ticketSig } = __modules["js/ui/ticket.js"];
+const { lampFor, nowLine, waitsForBackground, wordFor } = __modules["js/ui/vocabulary.js"];
+/** How many finished replies are listed before "show the rest". */
+const FINISHED_SHOWN = 8;
+
+/** A reply box inside a row. It shares its draft with the session's own reply box. */
+function quickReply(s, placeholder) {
+  const input = el('input', { type: 'text', placeholder, value: store.composerDrafts.get(s.id) ?? '', 'aria-label': `${s.taskTitle} への指示` });
+  const send = () => {
+    const words = input.value.trim();
+    if (!words) return input.focus();
+    // Sent as far as the screen goes: the row closes and the work shows as going on. It comes back if sending fails.
+    store.composerDrafts.delete(s.id);
+    store.replying.delete(s.id);
+    sendMessage(s.id, words).then((r) => {
+      if (r.status === 200) return;
+      store.composerDrafts.set(s.id, words);
+      store.replying.add(s.id);
+      store.errors.set(s.id, r.body.error || `送信できませんでした (${r.status})`);
+      render();
+    });
+  };
+  input.addEventListener('input', () => store.composerDrafts.set(s.id, input.value));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); send(); }
+    if (e.key === 'Escape') { e.stopPropagation(); store.replying.delete(s.id); render(); }
+  });
+  return el('div', { class: 'quick' }, input, el('button', { class: 'primary ib', title: '送る (Enter)', 'aria-label': '送る', onclick: send }, icon('send', 's')));
+}
+
+/** One piece of work as a row: what it is, what state it is in, and what can be done about it right here. */
+function workRow(s, { text, actions = [], reply = null }) {
+  const replying = reply && store.replying.has(s.id);
+  const toggleReply = () => {
+    if (replying) store.replying.delete(s.id);
+    else store.replying.add(s.id);
+    render();
+    if (!replying) requestAnimationFrame(() => document.querySelector(`[data-work="${s.id}"] .quick input`)?.focus());
+  };
+  return el('div', { class: 'result work', 'data-work': s.id },
+    lampFor(s),
+    el('button', { class: 'quiet t', title: `${wordFor(s)}。開く`, onclick: () => go(`#/s/${s.id}`) }, s.unread && el('span', { class: 'new-dot', title: '結果をまだ見ていません' }), s.taskTitle),
+    el('span', { class: 'do' },
+      el('span', { class: 'age', title: wordFor(s) }, agoWord(s.lifecycleSince ?? s.updatedAt)),
+      reply && el('button', { 'aria-expanded': String(!!replying), onclick: toggleReply }, icon('pencil', 's'), reply.word),
+      actions),
+    text && el('span', { class: 'x' }, text),
+    store.errors.has(s.id) && el('span', { class: 'x err', role: 'alert' }, store.errors.get(s.id)),
+    replying && quickReply(s, reply.placeholder));
+}
+const rowSig = (s) => [s.lifecycle, s.completion, s.taskTitle, s.unread, s.lastText, s.error, s.busyWith, s.queuePosition, nowLine(s), store.replying.has(s.id), store.errors.get(s.id), ago(s.lifecycleSince ?? s.updatedAt)].join('|');
+
+const problemRow = (s) => workRow(s, {
+  text: s.error ? `エラー: ${s.error}` : s.lifecycle === 'interrupted' ? '途中で止まりました。続きを指示するか、片付けられます。' : '状況が分かりません。開いて確認してください。',
+  reply: s.resumability === 'unrecoverable' ? null : { word: '続きを指示', placeholder: '続きの指示を書いて Enter（作業を再開します）' },
+  actions: [el('button', { title: '片付ける（会話も履歴も消えず、いつでも戻せます）', onclick: () => act(s.id, 'archive') }, icon('archive', 's'), '片付ける')],
+});
+
+const finishedRow = (s) => workRow(s, {
+  text: s.lastText ?? '',
+  reply: { word: '返信', placeholder: '追加の指示を書いて Enter' },
+  actions: [el('button', { title: 'この作業を完了にして片付ける（いつでも戻せます）', onclick: () => act(s.id, 'accept') }, icon('check', 's'), '完了にする')],
+});
+
+const activeRow = (s) => workRow(s, {
+  text: s.completion === 'validating' ? `検証しています: ${s.task?.checkCommand ?? ''}`
+    : s.lifecycle === 'queued' ? (s.queuePosition ? `順番待ち ${s.queuePosition}番目。空きが出ると自動で始まります。` : '順番待ち')
+      : s.lifecycle === 'waiting_for_user' ? 'エージェントがあなたの操作を待っています。開いて確認してください。'
+        : nowLine(s) ?? '',
+  reply: s.completion === 'validating' ? null : { word: '次の指示', placeholder: waitsForBackground(s) && s.live ? '指示を書いて Enter（すぐに届きます）' : '次に頼むことを書いて Enter（いまの作業が終わったら自動で送ります）' },
+  actions: [
+    waitsForBackground(s) && el('button', { title: 'バックグラウンドの作業を待たずに、いまの返答を完了として扱う', disabled: !!s.busyWith, onclick: () => act(s.id, 'finish') }, icon('done', 's'), '待たない'),
+    s.completion !== 'validating' && el('button', { disabled: !!s.busyWith, onclick: () => act(s.id, 'interrupt') }, icon('stop', 's'), s.lifecycle === 'queued' ? '取り消す' : '中断'),
+  ],
+});
+
+function inboxView() {
+  const count = el('span', { class: 'n amber' });
+  const list = el('div', {});
+  const clear = el('div', {});
+  const section = (ic, tone, word, extra) => {
+    const n = el('span', { class: 'n' });
+    return { head: el('h2', {}, icon(ic, tone), word, n, extra), n, body: el('div', {}) };
+  };
+  const steps = section('user', 'amber', 'あなたの作業');
+  const fixes = section('fail', 'red', '検証に失敗した作業');
+  const cands = section('shield', 'green', '完了にできる作業');
+  const problems = section('error', 'red', '止まっている作業');
+  const seenAll = el('button', { class: 'quiet seen-all', onclick: () => markAllSeen(inboxModel(store.state).allUnread) }, icon('check', 's'), 'すべて見たことにする');
+  const finished = section('done', 'green', '返答が完了した作業', seenAll);
+  const more = el('button', { class: 'quiet more', hidden: true, onclick: () => { store.showAllFinished = !store.showAllFinished; render(); } });
+  const active = section('running', 'blue', '進行中の作業');
+  const quickNew = el('button', { class: 'primary ib narrow-only', onclick: () => go('#/new'), title: '新しい作業', 'aria-label': '新しい作業' }, icon('plus'));
+  store.userCollapsed = false; // coming back to the inbox: one request opens by itself again
+  $('main').replaceChildren(el('div', { class: 'pad' }, el('h1', {}, icon('inbox', 'l'), '要対応', count, quickNew), list, clear,
+    steps.head, steps.body, fixes.head, fixes.body, cands.head, cands.body, problems.head, problems.body, finished.head, finished.body, more, active.head, active.body));
+
+  const fill = (sec, sessions, sig, build) => {
+    sec.head.hidden = sessions.length === 0;
+    sec.n.textContent = sessions.length || '';
+    sync(sec.body, sessions, (s) => s.id, sig, build);
+  };
+  const verdictRow = (s) => el('div', { class: 'result verdict-row' },
+    lampFor(s),
+    el('button', { class: 'quiet t', onclick: () => go(`#/s/${s.id}`) }, s.taskTitle),
+    s.completion === 'candidate'
+      ? el('button', { class: 'primary', onclick: () => act(s.id, 'accept') }, icon('check', 's'), '完了にする')
+      : el('button', { onclick: () => go(`#/s/${s.id}`) }, '開く'),
+    el('span', { class: 'x' }, evidenceLine(s)),
+    store.errors.has(s.id) && el('span', { class: 'x err' }, store.errors.get(s.id)));
+  const vSig = (s) => [s.completion, s.taskTitle, s.task?.validation?.at, store.errors.get(s.id)].join('|');
+
+  return {
+    key: 'inbox',
+    update() {
+      const model = inboxModel(store.state);
+      const { open } = model;
+      const c = store.state.counts;
+      count.textContent = open.length + c.humanTasks || '';
+      // Accordion: answering an open request opens the next one; with nothing open, the first opens by itself.
+      const { opened, afterAnswer } = advanceAccordion(store, open.map((i) => i.id));
+      sync(list, open, (i) => i.id, (i) => `${ticketSig(i)}|${store.expanded.has(i.id)}`, (i) => ticket(i, { collapsible: true }));
+      if (opened && afterAnswer && (!document.activeElement || document.activeElement === document.body || list.contains(document.activeElement))) {
+        requestAnimationFrame(() => list.querySelector(`[data-item="${opened}"]`)?.focus());
+      }
+      const clearSig = `${open.length}|${c.humanTasks}|${c.running}|${c.queued}|${c.unread}`;
+      if (clear.dataset.sig !== clearSig) {
+        clear.dataset.sig = clearSig;
+        clear.replaceChildren(...(open.length || c.humanTasks ? [] : [el('div', { class: 'clear' }, orrery(c.running || 3, c.running ? 'live' : ''),
+          el('strong', {}, '判断待ちはありません'),
+          (c.running > 0 || c.queued > 0) && el('div', { class: 'counts' },
+            el('span', { title: '実行中' }, icon('running', 's blue spin'), String(c.running)),
+            c.queued > 0 && el('span', { title: '順番待ち' }, icon('clock', 's'), String(c.queued))))]));
+      }
+      fill(steps, model.steps, stepsSig, (s) => stepsBox(s, { titled: true }));
+      fill(fixes, model.needsFix, vSig, verdictRow);
+      fill(cands, model.candidates, vSig, verdictRow);
+      fill(problems, model.problems, rowSig, problemRow);
+      const shown = store.showAllFinished ? model.finished : model.finished.slice(0, FINISHED_SHOWN);
+      fill(finished, shown, rowSig, finishedRow);
+      finished.head.hidden = model.finished.length === 0;
+      finished.n.textContent = model.finished.length || '';
+      seenAll.hidden = !model.finished.some((s) => s.unread);
+      more.hidden = model.finished.length <= FINISHED_SHOWN;
+      more.textContent = store.showAllFinished ? `新しい${FINISHED_SHOWN}件だけ表示` : `ほか${model.finished.length - FINISHED_SHOWN}件を表示`;
+      fill(active, model.active, rowSig, activeRow);
+    },
+  };
+}
+
+return { inboxView };
+})();
+__modules["js/ui/attachments.js"] = (() => {
+// Attachments: files and pasted pictures that go along with a message.
+const { saveAttachment } = __modules["js/logic/actions.js"];
+const { el, put } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+/** composer key -> [{ name, path, thumb, busy }]; keeps the list when the screen is rebuilt. */
+const attachDrafts = new Map();
+
+/**
+ * Wires a composer for attachments: a clip button, Ctrl+V for pictures on the clipboard, and drag and drop.
+ * Each file is saved by Orrery; the message then names the saved path, and the agent opens it from there.
+ * Returns { button, tray, ready(), suffix(), clear() }. `key` keeps the list when the screen is rebuilt.
+ */
+function attachments(key, textarea, card, onError) {
+  const list = attachDrafts.get(key) ?? attachDrafts.set(key, []).get(key);
+  const tray = el('div', { class: 'attached' });
+  const input = el('input', { type: 'file', multiple: true, hidden: true, tabindex: '-1', 'aria-hidden': 'true' });
+  const button = el('button', { type: 'button', class: 'quiet ib', title: 'ファイルを添付（画像は Ctrl+V でも貼れます）', 'aria-label': 'ファイルを添付', onclick: () => input.click() }, icon('clip'), input);
+  const drop = (a) => { const i = list.indexOf(a); if (i >= 0) list.splice(i, 1); if (a.thumb) URL.revokeObjectURL(a.thumb); };
+  const paint = () => {
+    tray.hidden = !list.length;
+    put(tray, list.map((a) => el('span', { class: 'att', title: a.path ?? a.name },
+      a.thumb ? el('img', { src: a.thumb, alt: '' }) : icon(a.busy ? 'running' : 'file', a.busy ? 's spin' : 's'),
+      el('span', { class: 'v' }, a.name),
+      el('button', { type: 'button', class: 'quiet', title: '外す', 'aria-label': `${a.name} を外す`, onclick: () => { drop(a); paint(); } }, icon('x', 's')))));
+  };
+  const add = async (files) => {
+    for (const file of files) {
+      // A picture pasted from the clipboard is always called "image.png": give it the time so several stay apart.
+      const pasted = file.name === 'image.png' && file.lastModified > Date.now() - 5000;
+      const name = pasted ? `貼り付け-${new Date().toTimeString().slice(0, 8).replace(/:/g, '')}.png` : file.name;
+      const a = { name, path: null, busy: true, thumb: file.type.startsWith('image/') ? URL.createObjectURL(file) : null };
+      list.push(a);
+      paint();
+      const r = await saveAttachment(name, file);
+      if (r.status === 200) { a.path = r.body.path; a.busy = false; onError(''); }
+      else { drop(a); onError(r.body.error || `${name} を添付できませんでした (${r.status})`); }
+      paint();
+    }
+  };
+  input.addEventListener('click', (e) => e.stopPropagation()); // it sits inside the button that opens it
+  input.addEventListener('change', () => { add([...input.files]); input.value = ''; });
+  textarea.addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData?.files ?? [])];
+    // Copying cells or rich text also puts a picture of it on the clipboard: the text is what was meant.
+    if (!files.length || e.clipboardData.getData('text/plain')) return;
+    e.preventDefault();
+    add(files);
+  });
+  card.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types ?? [])].includes('Files')) { e.preventDefault(); card.classList.add('dropping'); } });
+  card.addEventListener('dragleave', (e) => { if (!card.contains(e.relatedTarget)) card.classList.remove('dropping'); });
+  card.addEventListener('drop', (e) => {
+    card.classList.remove('dropping');
+    const files = [...(e.dataTransfer?.files ?? [])];
+    if (!files.length) return;
+    e.preventDefault();
+    add(files);
+  });
+  paint();
+  return {
+    button, tray,
+    count: () => list.length,
+    ready: () => !list.some((a) => a.busy),
+    suffix: () => (list.length ? `\n\n添付ファイル（次のパスにあります。開いて確認してください）:\n${list.map((a) => `- ${a.path}`).join('\n')}` : ''),
+    clear: () => { for (const a of [...list]) drop(a); paint(); },
+  };
+}
+
+return { attachments };
+})();
+__modules["js/ui/menu.js"] = (() => {
+// Menus: a small panel that opens right at the control that asked for it, and the chip that shows a choice.
+const { el, put } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+/** fill({ close, repaint }) returns the menu's children. repaint(selector) rebuilds it and focuses the match. */
+function openMenu(anchor, fill, label) {
+  if (performance.now() - (anchor._closedAt ?? 0) < 200) return; // the click that just dismissed it
+  const m = el('div', { class: 'menu', popover: 'auto', role: 'menu', 'aria-label': label });
+  const close = () => { if (m.isConnected) m.hidePopover(); };
+  const repaint = (focus) => { put(m, fill({ close, repaint })); if (focus) m.querySelector(focus)?.focus(); };
+  m.addEventListener('toggle', (e) => {
+    if (e.newState !== 'closed') return;
+    const hadFocus = m.contains(document.activeElement);
+    m.remove();
+    anchor._closedAt = performance.now();
+    anchor.setAttribute('aria-expanded', 'false');
+    if (hadFocus || document.activeElement === document.body) anchor.focus();
+  });
+  m.addEventListener('keydown', (e) => {
+    e.stopPropagation(); // the page's own shortcuts (n, i, Tab, Escape) must not fire from inside a menu
+    const a = document.activeElement;
+    const stops = [...m.querySelectorAll('.menu-item:not(:disabled), .fx-bar[aria-checked=true]')];
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      stops[(stops.indexOf(a) + (e.key === 'ArrowDown' ? 1 : -1) + stops.length) % stops.length]?.focus();
+      e.preventDefault();
+    } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && a?.classList.contains('fx-bar')) {
+      (e.key === 'ArrowLeft' ? a.previousElementSibling : a.nextElementSibling)?.click();
+      e.preventDefault();
+    } else if (/^[1-9]$/.test(e.key)) {
+      m.querySelector(`[data-n="${e.key}"]`)?.click();
+      e.preventDefault();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      close();
+    }
+  });
+  document.body.append(m);
+  repaint();
+  m.showPopover();
+  anchor.setAttribute('aria-expanded', 'true');
+  // Below the control when it fits; above it when the control sits low on the screen.
+  const a = anchor.getBoundingClientRect();
+  const h = m.offsetHeight;
+  const above = a.bottom + 6 + h > innerHeight - 8 && a.top - 6 - h >= 8;
+  m.style.setProperty('top', `${Math.max(8, above ? a.top - 6 - h : Math.min(a.bottom + 6, innerHeight - h - 8))}px`);
+  m.style.setProperty('left', `${Math.max(8, Math.min(a.left, innerWidth - m.offsetWidth - 8))}px`);
+  (m.querySelector('.menu-item[aria-checked=true]') ?? m.querySelector('.menu-item'))?.focus(); // also scrolls it into view
+}
+const menuItem = ({ ic, label, sub, checked, n, title, onpick }) =>
+  el('button', { type: 'button', class: 'menu-item', role: 'menuitemradio', 'aria-checked': String(!!checked), 'data-n': n ?? null, title: title ?? null, onclick: onpick },
+    ic && icon(ic, 's dim'),
+    el('span', { class: 'tx' }, el('span', {}, label), sub && el('span', { class: 'sub' }, sub)),
+    checked ? icon('check', 's ion') : n ? el('kbd', {}, String(n)) : null);
+
+/**
+ * A chip that shows the current choice and opens a menu of the others.
+ * options: [{ value, label, short?, sub?, icon?, sep? }]. Returns { node, get, set(value, options?) }.
+ */
+function picker({ ic, label, options, value, onChange, iconOnly = false }) {
+  let opts = options;
+  let val = value;
+  const slot = el('span', { class: 'ic' });
+  const v = el('span', { class: 'v' });
+  const node = el('button', { type: 'button', class: iconOnly ? 'chip icon-only' : 'chip', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, slot, v, icon('down', 'caret'));
+  const paint = () => {
+    const o = opts.find((x) => x.value === val);
+    put(slot, icon(o?.icon ?? ic, 's'));
+    v.textContent = iconOnly ? '' : (o?.short ?? o?.label ?? '');
+    node.title = iconOnly ? `${label}: ${o?.label ?? ''}` : label;
+    node.setAttribute('aria-label', `${label}: ${o?.label ?? ''}`);
+  };
+  node.addEventListener('click', () => openMenu(node, ({ close }) => opts.map((o, i) => [
+    o.sep && el('hr', {}),
+    menuItem({ ic: o.icon, label: o.label, sub: o.sub, checked: o.value === val, n: i < 9 ? i + 1 : null, onpick: () => { val = o.value; paint(); close(); onChange?.(val); } }),
+  ]), label));
+  paint();
+  return { node, get: () => val, set: (x, next) => { val = x; if (next) opts = next; paint(); } };
+}
+
+return { openMenu, menuItem, picker };
+})();
+__modules["js/ui/views/new-work.js"] = (() => {
+// New work: what to ask, and under it a bar of chips (where, who, which model, how much say you keep).
+const { loadModels: fetchModels, loadUsage, pickFolder, startWork } = __modules["js/logic/actions.js"];
+const { store } = __modules["js/logic/store.js"];
+const { attachments } = __modules["js/ui/attachments.js"];
+const { $, autoGrow, el, put } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+const { loginNotice } = __modules["js/ui/login-notice.js"];
+const { menuItem, openMenu, picker } = __modules["js/ui/menu.js"];
+const { go, route, ui } = __modules["js/ui/shell.js"];
+const { APPROVAL_OPTS, EFFORT, PROVIDER, ptag } = __modules["js/ui/vocabulary.js"];
+const remember = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; } };
+
+/** One card: what to ask, and under it a bar of chips (where, who, which model, how much say you keep). Start is at the right. */
+function newView() {
+  const projects = store.state.projects;
+  const prompt = el('textarea', { rows: '3', placeholder: 'エージェントに頼むこと', 'aria-label': '頼むこと' });
+  prompt.value = store.newDraft.prompt;
+  prompt.addEventListener('input', () => { store.newDraft.prompt = prompt.value; });
+  const err = el('div', { class: 'err', role: 'alert' }, store.newDraft.error);
+  store.newDraft.error = '';
+  const sentNote = el('div', { class: 'sent-note' });
+  const limitsRow = el('div', { class: 'limits-row' });
+  const authSlot = el('div', {});
+  const start = el('button', { class: 'primary', type: 'submit', title: '始める (Ctrl+Enter)' }, icon('send', 's'), '始める');
+
+  const project = picker({
+    ic: 'folder', label: 'プロジェクト',
+    value: projects.some((p) => p.id === remember('crProject')) ? remember('crProject') : (projects[0]?.id ?? ''),
+    options: [...projects.map((p) => ({ value: p.id, label: p.name, sub: p.rootPath })), { value: '', label: '別のフォルダを開く', short: '別のフォルダ', icon: 'plus', sep: projects.length > 0 }],
+    onChange: () => { syncForm(); if (!project.get()) folder.focus(); },
+  });
+  const folder = el('input', { type: 'text', placeholder: 'フォルダのパス', autocomplete: 'off', 'aria-label': 'フォルダ', value: store.newDraft.folder });
+  folder.addEventListener('input', () => { store.newDraft.folder = folder.value; });
+  const pick = el('button', { type: 'button', class: 'ib', title: 'フォルダを選ぶ', 'aria-label': 'フォルダを選ぶ' }, icon('folder'));
+  const folderWrap = el('div', { class: 'folder' }, folder, pick);
+  const envCount = el('span', { class: 'v' });
+  const envLink = el('button', { type: 'button', class: 'chip', title: 'このプロジェクトの環境変数', 'aria-label': '環境変数' }, icon('key', 's'), envCount);
+  envLink.addEventListener('click', () => project.get() && go(`#/env/${project.get()}`));
+
+  // Model and effort share one chip: the name, and a small gauge for the effort.
+  let models = [];
+  let choice = { model: '', effort: '' };
+  const modelName = el('span', { class: 'v' }, '…');
+  const modelGauge = el('span', { class: 'fx-mini' });
+  const modelBtn = el('button', { type: 'button', class: 'chip', title: 'モデルと思考量', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, icon('model', 's'), modelName, modelGauge, icon('down', 'caret'));
+  const effortWord = (e) => EFFORT[e] ?? e;
+  const midEffort = (m) => { const e = m?.efforts ?? []; return e.includes('medium') ? 'medium' : (m?.defaultEffort ?? e[Math.floor(e.length / 2)] ?? ''); };
+  const paintChoice = () => {
+    const m = models.find((x) => x.id === choice.model);
+    const levels = m?.efforts ?? [];
+    const at = levels.indexOf(choice.effort);
+    modelName.textContent = m ? m.label : '既定';
+    put(modelGauge, levels.map((_, i) => el('i', { class: i <= at ? 'on' : '' })));
+    modelGauge.hidden = !levels.length;
+    modelGauge.title = at >= 0 ? `思考量: ${effortWord(choice.effort)}` : '';
+    modelBtn.setAttribute('aria-label', `モデルと思考量: ${m ? m.label : '既定'}${at >= 0 ? `、思考量 ${effortWord(choice.effort)}` : ''}`);
+  };
+  const commit = () => { remember(`crChoice:${provider.get()}`, JSON.stringify(choice)); paintChoice(); };
+  modelBtn.addEventListener('click', () => models.length && openMenu(modelBtn, ({ close, repaint }) => {
+    const levels = models.find((x) => x.id === choice.model)?.efforts ?? [];
+    const at = levels.indexOf(choice.effort);
+    return [
+      el('div', { class: 'menu-scroll' }, models.map((m, i) => menuItem({ label: m.label, checked: m.id === choice.model, n: i < 9 ? i + 1 : null, onpick: () => {
+        choice = { model: m.id, effort: (m.efforts ?? []).includes(choice.effort) ? choice.effort : midEffort(m) };
+        commit();
+        close();
+      } }))),
+      el('hr', {}),
+      menuItem({ ic: 'sliders', label: '既定', title: `${PROVIDER[provider.get()]} 側の設定のモデルと思考量を使う`, checked: choice.model === '', onpick: () => { choice = { model: '', effort: '' }; commit(); close(); } }),
+      levels.length > 0 && [
+        el('hr', {}),
+        el('div', { class: 'fx', role: 'radiogroup', 'aria-label': '思考量' }, icon('bolt', 's dim'),
+          el('div', { class: 'fx-bars' }, levels.map((l, i) => el('button', { type: 'button', role: 'radio', class: 'fx-bar' + (i <= at ? ' on' : ''), 'aria-checked': String(i === at), tabindex: i === at ? '0' : '-1', title: effortWord(l), 'aria-label': `思考量 ${effortWord(l)}`,
+            onclick: () => { choice = { ...choice, effort: l }; commit(); repaint('.fx-bar[aria-checked=true]'); } }))),
+          el('span', { class: 'fx-word' }, at >= 0 ? effortWord(levels[at]) : '')),
+      ],
+    ];
+  }, 'モデルと思考量'));
+  const loadModels = async (prov) => {
+    models = [];
+    modelName.textContent = '…';
+    modelGauge.hidden = true;
+    const r = await fetchModels(prov);
+    if (provider.get() !== prov) return;
+    models = r.status === 200 ? r.body.models.filter((m) => m.id !== 'default') : [];
+    // Default: the provider's first (newest recommended) model at medium effort; afterwards, whatever was chosen last.
+    const first = models.find((m) => m.isDefault) ?? models[0];
+    choice = first ? { model: first.id, effort: midEffort(first) } : { model: '', effort: '' };
+    try {
+      const saved = JSON.parse(remember(`crChoice:${prov}`) ?? 'null');
+      if (saved && (saved.model === '' || models.some((m) => m.id === saved.model))) choice = saved;
+    } catch {}
+    paintChoice();
+  };
+
+  const approvalFor = (prov) => APPROVAL_OPTS.filter((o) => o.value !== 'edits' || prov === 'claude');
+  const savedApproval = (prov) => { const k = remember(`crApproval:${prov}`); return approvalFor(prov).some((o) => o.value === k) ? k : 'ask'; };
+  const provider = picker({
+    ic: 'agent', label: 'エージェント', value: remember('crProvider') === 'codex' ? 'codex' : 'claude',
+    options: [{ value: 'claude', label: PROVIDER.claude, icon: 'claude' }, { value: 'codex', label: PROVIDER.codex, icon: 'codex' }],
+    onChange: (v) => { remember('crProvider', v); approval.set(savedApproval(v), approvalFor(v)); syncForm(); loadModels(v); },
+  });
+  const approval = picker({
+    ic: 'shield', label: '承認', value: savedApproval(provider.get()), options: approvalFor(provider.get()), iconOnly: true,
+    onChange: (v) => { remember(`crApproval:${provider.get()}`, v); syncForm(); },
+  });
+  const policy = picker({
+    ic: 'eye', label: '確認するタイミング（Codex）', value: '',
+    options: [{ value: '', label: 'Codexの設定どおり', short: '既定' }, { value: 'untrusted', label: 'コマンドを毎回確認する', short: '毎回' }, { value: 'on-request', label: '必要なときだけ確認する', short: '必要時' }],
+  });
+  const plan = el('button', { type: 'button', class: 'chip', 'aria-pressed': 'false', title: '先に計画を出させて、承認してから実装させる', 'aria-label': '先に計画を出させる' }, icon('plan', 's'));
+  plan.addEventListener('click', () => plan.setAttribute('aria-pressed', String(plan.getAttribute('aria-pressed') !== 'true')));
+
+  const syncForm = () => {
+    const prov = provider.get();
+    folderWrap.hidden = project.get() !== '';
+    policy.node.hidden = prov !== 'codex' || approval.get() === 'auto';
+    const p = store.state.projects.find((x) => x.id === project.get());
+    envLink.hidden = !p;
+    envCount.textContent = p?.envCount ? String(p.envCount) : '';
+    const out = store.state.auth[prov].loggedIn === false;
+    start.disabled = out;
+    const sig = `${prov}|${JSON.stringify(store.state.auth[prov])}`;
+    if (authSlot.dataset.sig !== sig) { authSlot.dataset.sig = sig; put(authSlot, out && loginNotice(prov)); }
+  };
+  pick.addEventListener('click', async () => {
+    pick.disabled = true;
+    err.textContent = '';
+    const r = await pickFolder();
+    pick.disabled = false;
+    if (r.status === 200 && r.body.path) folder.value = store.newDraft.folder = r.body.path;
+    else if (r.status !== 200) err.textContent = r.body.error || 'フォルダ選択を開けませんでした';
+  });
+  const card = el('div', { class: 'composer' });
+  const att = attachments('new', prompt, card, (m) => { err.textContent = m; });
+  card.append(folderWrap, prompt,
+    el('div', { class: 'bar one-line' }, att.button, project.node, envLink, provider.node, modelBtn, approval.node, policy.node, plan, el('span', { class: 'grow' }), start));
+  const form = el('form', { class: 'new' }, authSlot, err, sentNote, el('div', { class: 'above-box' }, att.tray, limitsRow), card);
+  prompt.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); form.requestSubmit(); } });
+  // Sending shows at once: the box empties, the work appears in the rail as "送信中", and this screen stays ready for
+  // the next request (like pressing n). If it cannot be sent, the text comes back into the box.
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (start.disabled) return;
+    if (!att.ready()) return void (err.textContent = '添付の保存が終わるまでお待ちください');
+    if (!prompt.value.trim()) return void (err.textContent = '頼むことを書いてください');
+    if (!project.get() && !folder.value.trim()) return void (err.textContent = 'フォルダを選んでください');
+    err.textContent = '';
+    startWork({
+      text: prompt.value,
+      suffix: att.suffix(),
+      provider: provider.get(),
+      model: choice.model,
+      effort: choice.effort,
+      approvalMode: approval.get(),
+      planMode: plan.getAttribute('aria-pressed') === 'true',
+      codexPolicy: policy.get(),
+      projectId: project.get(),
+      folder: folder.value.trim(),
+      projectName: store.state.projects.find((x) => x.id === project.get())?.name ?? folder.value.trim().split(/[\\/]/).filter(Boolean).pop() ?? '',
+    }, {
+      // Shown in the rail from this instant: empty the box and stay ready for the next request.
+      onQueued: () => { prompt.value = ''; autoGrow(prompt); att.clear(); plan.setAttribute('aria-pressed', 'false'); },
+      afterQueued: () => prompt.focus(),
+      onProject: (projectId) => remember('crProject', projectId),
+      onFail: (message, text) => {
+        // The screen may have been rebuilt since (another screen was opened and closed): use whatever box is there now.
+        const box = route().view === 'new' ? document.querySelector('.new-work textarea') : null;
+        if (box) {
+          if (!box.value.trim()) { box.value = text; autoGrow(box); }
+          const line = document.querySelector('.new-work .err');
+          if (line) line.textContent = message;
+        } else store.newDraft.error = message;
+      },
+    });
+  });
+  const paintSent = () => {
+    const x = store.newDraft.sent && Date.now() - store.newDraft.sent.at < 8000 ? store.newDraft.sent : null;
+    if (sentNote.dataset.id === (x?.id ?? '')) return;
+    sentNote.dataset.id = x?.id ?? '';
+    put(sentNote, x && [icon('check', 's green'), el('span', {}, `「${x.title}」を始めました`), el('button', { type: 'button', class: 'quiet', onclick: () => go(`#/s/${x.id}`) }, '開く')]);
+    if (x) setTimeout(() => { if (ui.view?.key === 'new') ui.view.update(); }, 8100);
+  };
+
+  // Plan limits of each service, very short: what is left of the 5-hour and the weekly window.
+  const paintLimits = () => {
+    const d = store.limitsCache?.data;
+    put(limitsRow, ['claude', 'codex'].map((p) => {
+      const ls = d?.[p]?.limits ?? [];
+      const pick = (k) => ls.find((l) => l.kind === k);
+      const cell = (word, l) => {
+        if (!l || l.usedPercent === null) return el('span', { class: 'lim dim' }, word, ' —');
+        const left = Math.max(0, 100 - l.usedPercent);
+        const tone = left <= 10 ? 'red' : left <= 25 ? 'amber' : '';
+        return el('span', { class: 'lim', title: `${l.label}: 残り${left}%${l.resetsAt ? `（${new Date(l.resetsAt).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}にリセット）` : ''}` }, word, ' ', el('b', { class: tone }, `${left}%`));
+      };
+      return el('span', { class: 'lim-svc', title: `${PROVIDER[p]} の残り（ほかのアプリでの利用も含む）` }, ptag(p), cell('5h', pick('five_hour')), cell('週', pick('weekly')));
+    }));
+    limitsRow.title = '各サービスの利用枠の残り。ほかのアプリでの利用も含みます';
+  };
+  const loadLimits = async () => {
+    if (store.limitsCache && Date.now() - store.limitsCache.at < 60_000) return;
+    const r = await loadUsage();
+    if (r.status === 200 && ui.view?.key === 'new') paintLimits();
+  };
+  paintLimits();
+  loadLimits();
+  const limitsTimer = setInterval(() => { if (route().view !== 'new') clearInterval(limitsTimer); else loadLimits(); }, 90_000);
+  syncForm();
+  loadModels(provider.get());
+  // Same shape as a session screen: the whole composer sits at the bottom, where the reply box of a session is.
+  $('main').replaceChildren(el('div', { class: 'session new-work' },
+    el('header', { class: 'nw-head' }, el('h1', {}, icon('plus', 'l'), '新しい作業', el('button', { class: 'quiet narrow-only', onclick: () => go('#/') }, icon('back', 's'), '戻る'))),
+    el('div', {}),
+    el('div', { class: 's-foot' }, el('div', { class: 'inner' }, form))));
+  (projects.length ? prompt : folder).focus();
+  autoGrow(prompt);
+  paintSent();
+  return { key: 'new', update() { syncForm(); paintSent(); } };
+}
+
+return { newView };
+})();
+__modules["js/ui/views/session.js"] = (() => {
+// One piece of work: its conversation, what it is waiting for, and the box to say more.
+const { act, confirmSent, loadTranscript, markSeen, sendMessage } = __modules["js/logic/actions.js"];
+const { ago, agoWord, clock, mb } = __modules["js/logic/format.js"];
+const { sessionModel } = __modules["js/logic/selectors.js"];
+const { store } = __modules["js/logic/store.js"];
+const { toolSummary } = __modules["js/logic/text.js"];
+const { attachments } = __modules["js/ui/attachments.js"];
+const { $, autoGrow, el, put, sync } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+const { go, render, ui } = __modules["js/ui/shell.js"];
+const { richText, verdictNodes } = __modules["js/ui/task-parts.js"];
+const { ticket, ticketSig } = __modules["js/ui/ticket.js"];
+const { APPROVAL, BUSY_WORD, EFFORT, PROVIDER, STATE, lamp, lampFor, waitsForBackground, wordFor } = __modules["js/ui/vocabulary.js"];
+function messageNode(e, sessionId) {
+  const WHO = { user: 'user', assistant: 'agent', tool: 'terminal', system: 'info' };
+  const head = icon(WHO[e.role] ?? 'info');
+  if (e.role === 'tool') {
+    const { glyph, line, more } = toolSummary(e.text);
+    return el('div', { class: 'msg tool' }, icon(glyph), more ? el('details', {}, el('summary', {}, line), el('pre', {}, more)) : el('div', { class: 'text' }, line));
+  }
+  return el('div', { class: `msg ${e.role}` }, head, el('div', {}, el('div', { class: 'text' }, e.role === 'assistant' ? richText(e.text, sessionId) : e.text), el('div', { class: 'when' }, clock(e.at))));
+}
+function sessionView(id) {
+  const s0 = store.state.sessions.find((x) => x.id === id);
+  if (!s0) {
+    $('main').replaceChildren(el('div', { class: 'pad' }, el('h1', {}, 'この作業は見つかりません'), el('button', { onclick: () => go('#/') }, icon('back', 's'), '要対応に戻る')));
+    // Right after starting, the first store.state push may not include the session yet: this key never matches,
+    // so the screen is rebuilt on the next push instead of staying on "not found".
+    return { key: 'missing', update() {} };
+  }
+  const title = el('span', {});
+  const stateEl = el('span', { class: 's-state' });
+  const meta = el('div', { class: 's-meta' });
+  const acts = el('div', { class: 's-acts' });
+  const err = el('div', { class: 'err', role: 'alert' });
+  const verdict = el('div', { class: 'verdict' });
+  const renameBtn = el('button', { class: 'quiet ib', title: '名前を変える', 'aria-label': '名前を変える', onclick: () => { const cur = store.state.sessions.find((x) => x.id === id)?.taskTitle ?? ''; const next = prompt('作業の名前', cur); if (next && next.trim() && next !== cur) act(id, 'rename', { title: next }); } }, icon('pencil', 's'));
+  const log = el('div', { class: 'inner' });
+  const earlier = el('button', { class: 'quiet', hidden: true }, '以前の記録を読み込む');
+  const jump = el('div', { class: 's-jump', hidden: true }, el('button', { class: 'ib', title: '新しい記録へ', 'aria-label': '新しい記録へ', onclick: () => { body.scrollTop = body.scrollHeight; } }, icon('down')));
+  // Messages sent from here that the record does not show yet: on screen from the moment they are sent.
+  const outbox = el('div', { class: 'inner outbox' });
+  const body = el('div', { class: 's-body' }, el('div', { class: 'inner' }, earlier), log, outbox, jump);
+  const pending = el('div', {});
+  const text = el('textarea', { rows: '2', 'aria-label': '追加の指示' });
+  text.value = store.composerDrafts.get(id) ?? '';
+  const send = el('button', { class: 'primary ib' }, icon('send'));
+  const hint = el('span', { class: 'note' });
+  const sendErr = el('span', { class: 'err', role: 'alert' });
+  const held = el('div', { class: 'held' });
+  const card = el('div', { class: 'composer' });
+  const att = attachments(`s:${id}`, text, card, (m) => { sendErr.textContent = m; });
+  card.append(text, el('div', { class: 'bar' }, att.button, hint, sendErr, el('span', { class: 'grow' }), send));
+  const foot = el('div', { class: 's-foot' }, el('div', { class: 'inner' }, pending, held, att.tray, card));
+  $('main').replaceChildren(el('div', { class: 'session' },
+    el('header', { class: 's-head' },
+      el('div', { class: 's-title' }, el('button', { class: 'quiet ib back', onclick: () => go('#/'), 'aria-label': '一覧に戻る' }, icon('back')), el('h1', {}, title), renameBtn, stateEl, acts),
+      meta, verdict, err),
+    body, foot));
+
+  let firstSeq = null;
+  let lastSeq = 0;
+  let rev = -1;
+  let loading = false;
+  const atBottom = () => body.scrollHeight - body.scrollTop - body.clientHeight < 60;
+  body.addEventListener('scroll', () => { if (atBottom()) jump.hidden = true; });
+
+  async function load(initial) {
+    if (loading) return;
+    loading = true;
+    const r = await loadTranscript(id, initial ? {} : { after: lastSeq });
+    loading = false;
+    if (r.status !== 200 || !r.body.entries.length) {
+      if (initial && r.status === 200) log.replaceChildren(el('div', { class: 'note' }, 'まだ記録がありません。'));
+      return;
+    }
+    const stick = initial || atBottom();
+    if (initial) {
+      log.replaceChildren();
+      firstSeq = r.body.entries[0].seq;
+      earlier.hidden = r.body.entries.length < 200;
+    }
+    for (const e of r.body.entries) log.append(messageNode(e, id));
+    lastSeq = r.body.entries.at(-1).seq;
+    // The record now shows what was sent from here: its provisional copy has done its job.
+    if (!initial) confirmSent(id, r.body.entries.filter((e) => e.role === 'user').length);
+    if (stick) body.scrollTop = body.scrollHeight;
+    else jump.hidden = false;
+  }
+  earlier.addEventListener('click', async () => {
+    const r = await loadTranscript(id, { before: firstSeq });
+    if (r.status !== 200 || !r.body.entries.length) return void (earlier.hidden = true);
+    const h = body.scrollHeight;
+    log.prepend(...r.body.entries.map((e) => messageNode(e, id)));
+    firstSeq = r.body.entries[0].seq;
+    earlier.hidden = r.body.entries.length < 200;
+    body.scrollTop += body.scrollHeight - h;
+  });
+
+  const submit = async () => {
+    if (!text.value.trim() && !att.count()) return;
+    if (!att.ready()) return void (sendErr.textContent = '添付の保存が終わるまでお待ちください');
+    // Sent from this instant as far as the screen goes: the box empties and the words appear in the conversation.
+    const words = (text.value.trim() || '添付ファイルを確認してください。') + att.suffix();
+    text.value = '';
+    autoGrow(text);
+    att.clear();
+    store.composerDrafts.delete(id);
+    sendErr.textContent = '';
+    const sending = sendMessage(id, words);
+    body.scrollTop = body.scrollHeight;
+    const r = await sending;
+    if (r.status === 200) return;
+    // It did not go out: give the words back (to this box if it is still on screen and empty, else to the draft).
+    const message = r.body.error || `送信できませんでした (${r.status})`;
+    if (!(store.composerDrafts.get(id) ?? '').trim()) store.composerDrafts.set(id, words);
+    if (text.isConnected) {
+      if (!text.value.trim()) { text.value = words; autoGrow(text); }
+      sendErr.textContent = message;
+    } else store.notice(`「${store.state.sessions.find((x) => x.id === id)?.taskTitle ?? '作業'}」に送れませんでした: ${message}（書いた内容は入力欄に戻してあります）`);
+  };
+  send.addEventListener('click', submit);
+  text.addEventListener('input', () => store.composerDrafts.set(id, text.value));
+  text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) submit(); });
+
+  if (ui.focusComposer) { ui.focusComposer = false; text.focus(); }
+  let headSig = '';
+  return {
+    key: `s:${id}`,
+    update() {
+      const model = sessionModel(store.state, id);
+      if (!model) return;
+      const { s, busy, leftovers, others, mine } = model;
+      if (s.unread && document.visibilityState === 'visible') markSeen(id);
+      const def = STATE[s.lifecycle] ?? STATE.unknown;
+      const waitsBg = waitsForBackground(s);
+      // An agent that only waits for its background work takes a message at once; a working one gets it afterwards.
+      const holds = busy && !(waitsBg && s.live);
+      const mineOut = store.outbox.get(id) ?? [];
+      sync(outbox, mineOut, (m) => m.id, (m) => `${m.sent}`, (m) =>
+        el('div', { class: 'msg user unsent' }, icon('user'), el('div', {}, el('div', { class: 'text' }, m.text), el('div', { class: 'when' }, icon(m.sent ? 'clock' : 'running', m.sent ? 's' : 's spin'), m.sent ? ' 送信済み（エージェントの開始待ち）' : ' 送信中'))));
+      const res = s.resources;
+      const sig = [s.lifecycle, s.completion, s.taskTitle, s.effort, s.approvalMode, s.deferredMessage, s.busyWith, s.awaitingBackground, (s.background ?? []).join('、'), others.length, JSON.stringify(s.task?.humanSteps ?? null), s.queuePosition, s.task?.validating, s.task?.validation?.at, s.task?.fixRounds, s.live, s.process, s.model, s.archived, s.resumability, res?.processCount, res && Math.round(res.workingSetBytes / 5e6), store.errors.get(id), ago(s.lifecycleSince)].join('|');
+      if (sig !== headSig) {
+        headSig = sig;
+        title.textContent = s.taskTitle;
+        document.title = `${s.taskTitle} — Orrery`;
+        const doing = s.busyWith && BUSY_WORD[s.busyWith];
+        const word = doing || (waitsBg ? wordFor(s) : s.lifecycle === 'queued' && s.queuePosition ? `順番待ち ${s.queuePosition}番目` : def.word);
+        put(stateEl, doing ? icon('running', 'spin') : waitsBg ? lampFor(s) : lamp(s.lifecycle),
+          // What was just asked for, and a state that is easy to mistake for "finished", are spelled out.
+          doing || waitsBg ? el('span', { class: 'note' }, word) : el('span', { class: 'sr-only' }, word), el('span', { class: 'note' }, ago(s.lifecycleSince)));
+        stateEl.title = `${word}（${agoWord(s.lifecycleSince)}から）`;
+        put(meta,
+          el('span', { title: 'プロジェクト' }, icon('folder', 's'), s.projectName),
+          el('span', { class: 'path', title: s.cwd }, s.cwd),
+          s.worktree && el('span', { title: s.worktree.removed ? (s.worktree.keptBranch ? '作業用フォルダは片付け済み。変更はこのブランチに残っています' : '作業用フォルダは片付け済み') : `この作業専用のフォルダ（git worktree）。完了にするか片付けると自動で削除されます\n${s.worktree.path}` }, icon('branch', 's'), s.worktree.branch, s.worktree.removed ? '（片付け済み）' : ''),
+          el('span', { title: 'エージェント' }, icon(s.provider in PROVIDER ? s.provider : 'agent', 's'), PROVIDER[s.provider]),
+          s.model && el('span', { title: 'モデル' }, icon('model', 's'), s.model),
+          s.effort && el('span', { title: '思考量' }, icon('bolt', 's'), EFFORT[s.effort] ?? s.effort),
+          s.approvalMode !== 'ask' && el('span', { title: '承認の任せ方' }, icon('shield', 's'), APPROVAL[s.approvalMode]),
+          el('span', { title: res ? `${res.scope}（${clock(new Date(res.sampledAt))}計測）` : '' }, icon('chip', 's'),
+            !s.live ? 'プロセスなし' : res ? `${res.shared ? '共有 ' : ''}${res.processCount}プロセス ${mb(res.workingSetBytes)}` : '計測待ち'),
+          s.background?.length && el('span', { title: 'エージェントがバックグラウンドで動かしている作業' }, icon('running', 's'), s.background.join('、')),
+          s.resumability === 'unrecoverable' && el('span', { class: 'red' }, icon('error', 's'), '再開できません'));
+        const ib = (ic, label, onclick, cls = '') => el('button', { class: `ib ${cls}`, title: label, 'aria-label': label, onclick, disabled: !!s.busyWith }, icon(ic, 's'));
+        put(acts,
+          busy && ib('stop', s.lifecycle === 'queued' ? '取り消す' : '中断する', () => act(id, 'interrupt')),
+          waitsBg && ib('done', 'バックグラウンドの作業を待たずに、いまの返答を完了として扱う', () => act(id, 'finish')),
+          !busy && s.live && s.provider === 'claude' && ib('power', 'メモリを空ける（プロセスを終了します。会話は残り、次の指示で再開します）', () => act(id, 'stop')),
+          leftovers && ib('trash', `残ったプロセス${res.processCount}個を終了`, () => confirm(`この作業が残した ${res.processCount} 個のプロセスを終了します。`) && act(id, 'cleanup'), 'danger'),
+          !busy && !s.archived && ib('archive', '片付ける（会話も履歴も消えず、いつでも戻せます）', () => { act(id, 'archive'); go('#/'); }),
+          s.archived && ib('restore', '一覧に戻す', () => act(id, 'unarchive')),
+          others.length > 0 && el('button', { class: 'primary', title: `次の判断待ちへ（${others.length}件）`, 'aria-label': `次の判断待ちへ（${others.length}件）`, onclick: () => go(`#/s/${others[0].sessionId}`) }, icon('attention', 's'), String(others.length)));
+        err.textContent = store.errors.get(id) ?? '';
+        put(verdict, verdictNodes(s));
+        const sendWord = holds ? '終わったら送る' : s.live ? '送る' : '再開して送る';
+        put(send, icon(holds ? 'clock' : s.live ? 'send' : 'restore'));
+        send.title = `${sendWord} (Ctrl+Enter)`;
+        send.setAttribute('aria-label', sendWord);
+        text.placeholder = holds ? '次に頼むことを書いておけます（いまの作業が終わったら自動で送ります）' : s.lifecycle === 'interrupted' ? '続きの指示を書く' : '追加の指示を書く';
+        put(held, s.deferredMessage && el('div', { class: 'held-box' }, icon('send', 's'), el('div', { class: 'text' }, s.deferredMessage), el('button', { class: 'quiet', onclick: () => act(id, 'unsend') }, icon('x', 's'), '取り消す')));
+        put(hint, s.lifecycle === 'queued' ? '順番が来たら自動で始まります' : s.lifecycle === 'waiting_for_user' ? '上の依頼に答えると進みます' : waitsBg ? 'バックグラウンドの作業が終わると、エージェントが続きを始めます' : busy ? '作業が終わったら自動で届きます'
+          : [el('kbd', { title: 'Tabで次の作業へ' }, 'Tab'), icon('down', 's')]);
+      }
+      sync(pending, mine, (i) => i.id, ticketSig, (i) => ticket(i, { linkToSession: false }));
+      if (rev < 0) { rev = s.transcriptRev; load(true); }
+      else if (s.transcriptRev !== rev) { rev = s.transcriptRev; load(false); }
+    },
+  };
+}
+
+return { sessionView };
+})();
+__modules["js/ui/views/settings.js"] = (() => {
+const { loadAppUpdate, loadStorage, purgeStorage, runAppUpdate, setSettings } = __modules["js/logic/actions.js"];
+const { store } = __modules["js/logic/store.js"];
+const { $, el, sync } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+const { picker } = __modules["js/ui/menu.js"];
+const { go, route } = __modules["js/ui/shell.js"];
+function settingsView() {
+  const n = el('b', { class: 'big' });
+  const minus = el('button', { 'aria-label': '減らす' }, icon('minus', 's'));
+  const plus = el('button', { 'aria-label': '増やす' }, icon('plus', 's'));
+  const set = (patch) => setSettings(patch);
+  minus.addEventListener('click', () => set({ maxConcurrent: store.state.settings.maxConcurrent - 1 }));
+  plus.addEventListener('click', () => set({ maxConcurrent: store.state.settings.maxConcurrent + 1 }));
+  const mem = el('input', { type: 'text', inputmode: 'numeric', 'aria-label': '空きメモリの下限（MB）' });
+  const memNote = el('span', { class: 'note' });
+  mem.addEventListener('change', () => set({ minFreeMemoryMB: Number(mem.value) || 0 }));
+  const queueNote = el('p', { class: 'note' });
+  const projects = el('div', {});
+  const storeInfo = el('p', { class: 'note' }, '読み込み中…');
+  const days = picker({ ic: 'clock', label: '対象の古さ', value: '30', options: [{ value: '30', label: '30日より前のもの' }, { value: '7', label: '7日より前のもの' }, { value: '0', label: 'すべて' }] });
+  const purgeNote = el('p', { class: 'note' });
+  const loadStore = async () => {
+    const r = await loadStorage();
+    if (r.status === 200) storeInfo.textContent = `保存データ ${(r.body.bytes / 1048576).toFixed(1)} MB（会話の記録 ${r.body.transcriptEntries}件、生データ ${r.body.rawPayloads}件、作業 ${r.body.sessions}件うち片付け済み ${r.body.archivedSessions}件）`;
+  };
+  const purgeBtn = el('button', { class: 'danger', onclick: async () => {
+    if (!confirm('片付けた作業の会話記録とキャッシュを削除します。元に戻せません。')) return;
+    purgeBtn.disabled = true;
+    const r = await purgeStorage(Number(days.get()));
+    purgeBtn.disabled = false;
+    purgeNote.textContent = r.status === 200 ? `${r.body.sessions}件の作業の記録を削除し、${(r.body.freedBytes / 1048576).toFixed(1)} MB 空けました。` : (r.body.error || '削除できませんでした');
+    loadStore();
+  } }, icon('trash', 's'), '削除する');
+  // App update: the app lives in the tray and never closes on its own, so code changes are brought in from here.
+  const updInfo = el('p', { class: 'note' }, '読み込み中…');
+  const updState = el('p', { class: 'note' });
+  const updErr = el('p', { class: 'err', role: 'alert' });
+  const updLog = el('pre', { class: 'upd-log', hidden: true });
+  const updBtn = el('button', { class: 'primary' }, icon('restore', 's'), '更新して再起動');
+  const restartBtn = el('button', {}, icon('power', 's'), '再起動だけする');
+  const updRow = el('div', { class: 'stepper' }, updBtn, restartBtn);
+  const updNote = el('p', { class: 'note', hidden: true }, '「更新して再起動」は、ソースのフォルダからこのアプリを作り直し、閉じて新しいバージョンで開き直します。作っている間もこのまま使えます。「再起動だけする」は作り直さずに開き直します。依存パッケージ（package.json）を変えたときは、先に npm install を実行してください。');
+  const confirmStop = (what) => {
+    const c = store.state.counts;
+    const busy = c.running + c.waiting + c.queued;
+    return !busy || confirm(`実行中・判断待ち・順番待ちの作業が${busy}件あります。${what}の間、エージェントは止まります。会話は残り、起動後に「中断」として表示されるので、続きを指示できます。`);
+  };
+  const short = (s) => (s ? s.slice(0, 7) : '?');
+  const paintUpd = (u) => {
+    updErr.textContent = u.error || '';
+    updLog.hidden = !(u.phase === 'building' || u.phase === 'failed') || !u.log?.length;
+    if (!updLog.hidden) { updLog.textContent = u.log.join('\n'); updLog.scrollTop = updLog.scrollHeight; }
+    updNote.hidden = u.mode !== 'packaged';
+    if (u.mode === 'console') {
+      updInfo.textContent = 'コンソールから起動しているため、ここからは更新できません。Ctrl+C で止めて、起動し直してください。';
+      updRow.hidden = true;
+      return;
+    }
+    if (u.mode === 'dev') {
+      updInfo.textContent = '開発用の起動（npm run app）です。ソースはそのまま読み込まれるので、再起動すれば変更が反映されます。';
+      updBtn.lastChild.textContent = '再起動して反映';
+      restartBtn.hidden = true;
+    } else {
+      const b = u.build;
+      updInfo.textContent = `いまのバージョン: v${u.version}・${b ? `${new Date(b.builtAt).toLocaleString()} にビルド（${short(b.commit)}${b.dirty ? ' + 未コミットの変更' : ''}）` : 'ビルド情報なし（このボタンで一度更新すると記録されます）'}`;
+    }
+    const s = u.source;
+    updState.textContent =
+      u.phase === 'building' ? `新しいバージョンを作っています（${Math.round((Date.now() - u.startedAt) / 1000)}秒）。このまま使えます。できあがると自動で再起動します。`
+      : u.phase === 'restarting' ? '再起動しています…　新しいウィンドウが開くまでお待ちください。'
+      : u.mode === 'dev' ? ''
+      : !u.canBuild ? `ソースのフォルダが見つからないため、ここからは更新できません（${u.repo}）。`
+      : u.upToDate === true ? 'ソースに変更はありません。最新です。'
+      : u.upToDate === false ? `ソースが更新されています: ${short(s?.commit)} ${s?.subject ?? ''}${s?.dirty ? '（+ 未コミットの変更）' : ''}`
+      : '最新かどうか判定できません。';
+    updBtn.disabled = u.phase === 'building' || u.phase === 'restarting' || (u.mode === 'packaged' && !u.canBuild);
+    restartBtn.disabled = u.phase === 'building' || u.phase === 'restarting';
+    updBtn.classList.toggle('primary', u.upToDate !== true);
+  };
+  let updTimer = null;
+  const loadUpd = async () => {
+    clearTimeout(updTimer);
+    if (route().view !== 'settings') return;
+    const r = await loadAppUpdate();
+    if (r.status === 0) {
+      updState.textContent = '再起動しています…　新しいウィンドウが開くまでお待ちください。';
+      updTimer = setTimeout(loadUpd, 2000);
+      return;
+    }
+    if (r.status !== 200) return void (updInfo.textContent = r.body.error || '更新の状態を取得できませんでした');
+    paintUpd(r.body);
+    if (r.body.phase === 'building' || r.body.phase === 'restarting') updTimer = setTimeout(loadUpd, 1500);
+  };
+  const runUpd = async (kind) => {
+    if (!confirmStop(kind === 'update' ? '更新' : '再起動')) return;
+    updBtn.disabled = restartBtn.disabled = true;
+    const r = await runAppUpdate(kind);
+    if (r.status !== 200 && r.status !== 0) {
+      updErr.textContent = r.body.error || `できませんでした (${r.status})`;
+      updBtn.disabled = restartBtn.disabled = false;
+      return;
+    }
+    loadUpd();
+  };
+  updBtn.addEventListener('click', () => runUpd('update'));
+  restartBtn.addEventListener('click', () => runUpd('restart'));
+  loadUpd();
+  loadStore();
+  $('main').replaceChildren(el('div', { class: 'pad' },
+    el('h1', {}, icon('sliders', 'l'), '設定', el('button', { class: 'quiet narrow-only', onclick: () => go('#/') }, icon('back', 's'), '戻る')),
+    el('h2', {}, icon('restore'), 'アプリの更新'),
+    updInfo,
+    updRow,
+    updState,
+    updErr,
+    updLog,
+    updNote,
+    el('h2', {}, icon('running', 'blue'), '同時に動かす作業の数'),
+    el('div', { class: 'stepper' }, minus, n, plus, el('span', { class: 'note' }, '件まで。超えた分は順番待ちになり、空きが出ると自動で始まります。判断待ちの作業も1件に数えます。')),
+    queueNote,
+    el('h2', {}, icon('chip'), '空きメモリが少ないときは始めない'),
+    el('div', { class: 'stepper' }, mem, el('span', {}, 'MB未満なら順番待ちのままにする（0で無効）'), memNote),
+    el('h2', {}, icon('key'), 'プロジェクトの環境変数'),
+    projects,
+    el('h2', {}, icon('archive'), '保存データ'),
+    storeInfo,
+    el('div', { class: 'stepper' }, el('span', {}, '片付けた作業のうち'), days.node, el('span', {}, 'の会話記録と、アプリのキャッシュを'), purgeBtn),
+    purgeNote,
+    el('p', { class: 'note' }, '削除するのは、片付けた作業の会話の記録とエージェントからの生データです。作業の一覧、判断の履歴、検証結果は残ります。Claude Code・Codex 側が持つ会話そのものは消えないので、作業の再開はできます。')));
+  return {
+    key: 'settings',
+    update() {
+      n.textContent = store.state.settings.maxConcurrent;
+      minus.disabled = store.state.settings.maxConcurrent <= 1;
+      plus.disabled = store.state.settings.maxConcurrent >= 20;
+      if (document.activeElement !== mem) mem.value = store.state.settings.minFreeMemoryMB;
+      memNote.textContent = `いまの空き: ${store.state.queue.freeMemoryMB} MB`;
+      queueNote.textContent = store.state.queue.length ? `いま${store.state.queue.length}件が順番待ちです（${store.state.queue.blockedBy === 'memory' ? '空きメモリ不足' : store.state.queue.blockedBy === 'slots' ? '同時実行数の上限' : 'まもなく開始'}）。` : '';
+      sync(projects, store.state.projects, (p) => p.id, (p) => `${p.name}|${p.envCount}`, (p) =>
+        el('div', { class: 'row' }, icon('folder', 'dim'), el('span', {}, p.name), el('button', { onclick: () => go(`#/env/${p.id}`) }, icon('key', 's'), p.envCount ? `${p.envCount}件` : '設定する'), el('span', { class: 'x' }, p.rootPath)));
+      if (!store.state.projects.length && !projects.firstChild) projects.append(el('p', { class: 'note' }, 'プロジェクトを登録すると、ここで環境変数を設定できます。'));
+    },
+  };
+}
+
+return { settingsView };
+})();
+__modules["js/ui/views/usage.js"] = (() => {
+const { loadUsage } = __modules["js/logic/actions.js"];
+const { clock, num, until } = __modules["js/logic/format.js"];
+const { store } = __modules["js/logic/store.js"];
+const { $, el, put } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+const { loginNotice } = __modules["js/ui/login-notice.js"];
+const { go, route } = __modules["js/ui/shell.js"];
+const { PROVIDER, ptag } = __modules["js/ui/vocabulary.js"];
+function usageView() {
+  const box = el('div', {});
+  const stamp = el('p', { class: 'note' });
+  let data = null;
+  let timer = null;
+  const paint = () => {
+    put(box, ['claude', 'codex'].map((p) => {
+      const a = store.state.auth[p];
+      const u = data?.[p];
+      return el('section', { class: 'svc' },
+        el('h2', {}, ptag(p), PROVIDER[p],
+          a.loggedIn === false ? el('span', { class: 'red' }, 'ログアウト中') : a.loggedIn ? el('span', { class: 'note' }, `ログイン中${a.plan ? `（${a.plan}）` : ''}`) : el('span', { class: 'note' }, '確認中…')),
+        a.loggedIn === false && loginNotice(p),
+        u && (u.limits.length
+          ? u.limits.map((l) => {
+              const tone = l.state === 'reached' || l.usedPercent >= 90 ? 'red' : l.state === 'warning' || l.usedPercent >= 70 ? 'amber' : '';
+              const word = l.usedPercent === null ? { ok: '上限内', warning: '上限に近い', reached: '上限に到達' }[l.state] ?? '' : `残り ${Math.max(0, 100 - l.usedPercent)}%（${l.usedPercent}%使用）`;
+              const bar = l.usedPercent !== null && el('div', { class: 'bar-meter ' + (tone === 'red' ? 'hot' : tone === 'amber' ? 'warm' : ''), role: 'meter', 'aria-valuenow': String(l.usedPercent), 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-label': `${l.label}の使用率` }, el('i', {}));
+              if (bar) bar.firstChild.style.setProperty('width', `${Math.min(100, l.usedPercent)}%`);
+              return el('div', { class: 'limit' }, el('div', { class: 'limit-head' }, el('span', {}, l.label), el('b', { class: tone }, word), el('span', { class: 'note' }, l.resetsAt ? until(l.resetsAt) : '')), bar);
+            })
+          : el('p', { class: 'note' }, u.limitsError ? `利用枠を取得できませんでした: ${u.limitsError}` : '利用枠の情報はありません。')),
+        u && el('div', { class: 'tokens' },
+          el('div', {}, el('span', { class: 'note' }, '今日'), el('b', {}, num(u.today.input + u.today.output)), el('span', { class: 'note' }, `入力 ${num(u.today.input)} / 出力 ${num(u.today.output)}・${u.today.turns}回`)),
+          el('div', {}, el('span', { class: 'note' }, '直近7日'), el('b', {}, num(u.week.input + u.week.output)), el('span', { class: 'note' }, `入力 ${num(u.week.input)} / 出力 ${num(u.week.output)}・${u.week.turns}回`))));
+    }));
+  };
+  const load = async () => {
+    const r = await loadUsage();
+    if (r.status === 200) { data = r.body; stamp.textContent = `${clock(Date.now())} 時点。トークン数はこのアプリから動かした作業の合計で、ほかのアプリでの利用は含みません。利用枠は各サービスが返す値で、ほかのアプリでの利用も含みます。`; }
+    paint();
+  };
+  $('main').replaceChildren(el('div', { class: 'pad' }, el('h1', {}, icon('gauge', 'l'), '利用状況', el('button', { class: 'quiet narrow-only', onclick: () => go('#/') }, icon('back', 's'), '戻る')), box, stamp));
+  load();
+  timer = setInterval(() => { if (route().view === 'usage') load(); else clearInterval(timer); }, 60000);
+  let authSig = '';
+  return { key: 'usage', update() { const s2 = JSON.stringify(store.state.auth); if (s2 !== authSig) { authSig = s2; paint(); } } };
+}
+
+return { usageView };
+})();
+__modules["js/ui/app.js"] = (() => {
+// The render loop: rail + the screen the address asks for, redrawn whenever the store says something changed.
+// Also what belongs to the page as a whole: notifications and the keyboard.
+const { routeKey } = __modules["js/logic/route.js"];
+const { neighbour } = __modules["js/logic/selectors.js"];
+const { store } = __modules["js/logic/store.js"];
+const { $, el, sync } = __modules["js/ui/dom.js"];
+const { icon } = __modules["js/ui/icons.js"];
+const { renderRail } = __modules["js/ui/rail.js"];
+const { go, render, route, ui } = __modules["js/ui/shell.js"];
+const { kindOf } = __modules["js/ui/vocabulary.js"];
+const { archiveView } = __modules["js/ui/views/archive.js"];
+const { envView } = __modules["js/ui/views/env.js"];
+const { inboxView } = __modules["js/ui/views/inbox.js"];
+const { newView } = __modules["js/ui/views/new-work.js"];
+const { sessionView } = __modules["js/ui/views/session.js"];
+const { settingsView } = __modules["js/ui/views/settings.js"];
+const { usageView } = __modules["js/ui/views/usage.js"];
+function draw() {
+  if (!store.state) return;
+  const r = route();
+  const key = routeKey(r);
+  document.body.dataset.view = r.view;
+  renderRail(r);
+  if (!ui.view || ui.view.key !== key) {
+    ui.view = r.view === 'session' ? sessionView(r.id) : r.view === 'new' ? newView() : r.view === 'archive' ? archiveView() : r.view === 'settings' ? settingsView() : r.view === 'usage' ? usageView() : r.view === 'env' ? envView(r.id) : inboxView();
+    $('main').scrollTop = 0;
+  }
+  ui.view.update(r);
+  // The same number as the rail's first lamp: requests to answer plus work whose remaining steps are the human's.
+  const n = store.state.counts.needsAttention + store.state.counts.humanTasks;
+  if (r.view !== 'session') document.title = n ? `(${n}) 要対応 — Orrery` : 'Orrery';
+  drawNotices();
+  notify();
+}
+
+/** Short messages about something that happened away from where the human is looking (see store.notice). */
+function drawNotices() {
+  sync($('notices'), store.notices, (n) => n.id, (n) => n.text, (n) =>
+    el('div', { class: `notice ${n.tone}` }, icon(n.tone === 'bad' ? 'error' : 'info', n.tone === 'bad' ? 's red' : 's'), el('span', {}, n.text),
+      el('button', { type: 'button', class: 'quiet ib', title: '閉じる', 'aria-label': '閉じる', onclick: () => store.dismissNotice(n.id) }, icon('x', 's'))));
+}
+
+const notified = new Set();
+let firstPaint = true;
+let lastAnnounced = -1;
+function notify() {
+  const open = store.state.items.filter((i) => i.status === 'pending');
+  const total = open.length + store.state.counts.humanTasks;
+  if (total !== lastAnnounced) {
+    lastAnnounced = total;
+    $('live').textContent = total ? `要対応が${total}件あります` : '要対応はありません';
+  }
+  // Work whose agent is finished and whose remaining steps are the human's is news too, not only questions.
+  for (const s of store.state.sessions) {
+    if (s.archived || s.completion !== 'human_steps' || notified.has(`steps:${s.id}:${s.lifecycleSince}`)) continue;
+    notified.add(`steps:${s.id}:${s.lifecycleSince}`);
+    if (firstPaint || document.visibilityState === 'visible' || !('Notification' in window) || Notification.permission !== 'granted') continue;
+    const left = (s.task?.humanSteps ?? []).filter((x) => !x.done);
+    const note = new Notification(`あなたの作業: ${s.taskTitle}`, { body: left.map((x) => x.title).join(' / ').slice(0, 140), tag: `steps:${s.id}` });
+    note.onclick = () => { window.focus(); go(`#/s/${s.id}`); };
+  }
+  for (const i of open) {
+    if (notified.has(i.id)) continue;
+    notified.add(i.id);
+    if (firstPaint || document.visibilityState === 'visible' || !('Notification' in window) || Notification.permission !== 'granted') continue;
+    const note = new Notification(`${kindOf(i).word}: ${i.taskTitle}`, { body: i.summary.slice(0, 140), tag: i.id });
+    note.onclick = () => { window.focus(); go('#/'); };
+  }
+  firstPaint = false;
+}
+
+function onKey(e) {
+  const a = document.activeElement;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(a?.tagName ?? '') && !/^(radio|checkbox)$/.test(a?.type ?? '');
+  if (document.querySelector('.menu')) return;
+  if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey && route().view === 'session') {
+    const order = [...document.querySelectorAll('.rail .strip')].map((n) => n.dataset.key);
+    if (order.length > 1) {
+      e.preventDefault();
+      ui.focusComposer = true;
+      go(`#/s/${neighbour(order, route().id, e.shiftKey)}`);
+      return;
+    }
+  }
+  if (e.key === 'Escape') {
+    if (typing) a.blur();
+    else if (route().view !== 'inbox') go('#/');
+    return;
+  }
+  const cards = [...document.querySelectorAll('[data-item]')];
+  const current = a?.closest?.('[data-item]');
+  if (e.key === 'Enter' && e.ctrlKey && current) return void current.querySelector('[data-submit]')?.click();
+  if (e.key === 'Enter' && !typing && current === a && current?.dataset.collapsed) { e.preventDefault(); return void current.querySelector('.tg')?.click(); }
+  if (typing || e.ctrlKey || e.altKey || e.metaKey) return;
+  if (e.key === 'n') { go('#/new'); e.preventDefault(); }
+  else if (e.key === 'i') { go('#/'); e.preventDefault(); }
+  else if (e.key === 'j' || e.key === 'k') {
+    if (!cards.length) return;
+    const idx = cards.indexOf(current);
+    cards[Math.max(0, Math.min(cards.length - 1, idx < 0 ? 0 : idx + (e.key === 'j' ? 1 : -1)))].focus();
+    e.preventDefault();
+  } else if (/^[1-9]$/.test(e.key)) {
+    const target = (current ?? cards[0])?.querySelector(`input[data-key="${e.key}"]`);
+    if (target && !target.disabled) { target.click(); target.focus(); e.preventDefault(); }
+  }
+}
+
+/** Start drawing: from now on every store change, address change and return to the tab redraws the page. */
+function mount() {
+  store.subscribe(draw);
+  window.addEventListener('hashchange', () => render());
+  document.addEventListener('keydown', onKey);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') render(); });
+  setInterval(() => { if (store.state && document.visibilityState === 'visible') render(); }, 30000); // keep "3分" ages honest
+}
+
+return { mount };
+})();
+__modules["js/main.js"] = (() => {
+// Orrery UI entry point. No dependencies, no build step, no inline script/style (strict CSP).
+//   logic/  what the app knows and does: server access, client state, derivations, actions. Never touches the DOM.
+//   ui/     what it looks like: builds and updates the DOM from the store, and turns clicks into calls on logic/.
+// This file only connects the two: it finds the token, mounts the UI, and feeds server snapshots into the store.
+const { followState } = __modules["js/logic/api.js"];
+const { store } = __modules["js/logic/store.js"];
+const { mount } = __modules["js/ui/app.js"];
+const { banner } = __modules["js/ui/shell.js"];
+const NO_ACCESS = 'このタブは操作できません。Orreryを起動したときに開いたウィンドウ、または起動時に表示されたURLから開いてください。';
+
+// The token arrives once in the address fragment (never sent to the server), then lives in this tab's session storage.
+store.token = sessionStorage.getItem('crToken') || '';
+{
+  const m = location.hash.match(/token=([\w-]+)/);
+  if (m) {
+    store.token = m[1];
+    sessionStorage.setItem('crToken', store.token);
+    history.replaceState(null, '', location.pathname + '#/');
+  }
+}
+
+mount();
+
+if (!store.token) banner(NO_ACCESS);
+else {
+  followState(
+    (snapshot) => store.receive(snapshot),
+    (status) => banner(status === 'connected' ? '' : status === 'refused' ? NO_ACCESS : 'Orreryとの接続が切れました。表示は最新でない可能性があります。再接続しています。'),
+  );
+}
+
+return {  };
+})();</script>
+</body>
+</html>

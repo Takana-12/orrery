@@ -1,0 +1,11 @@
+node_modules/
+dist/
+# raw protocol logs can contain account details (e-mail, ids): never commit
+poc/logs/*.jsonl
+*.sqlite
+*.sqlite-*
+.control-room/
+release/
+
+# per-machine Claude Code preview config (absolute local paths)
+.claude/launch.json

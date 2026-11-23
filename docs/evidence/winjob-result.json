@@ -1,0 +1,72 @@
+{
+  "ranAt": "2026-11-22T09:24:46.720Z",
+  "node": "v24.22.1",
+  "part1": {
+    "childPid": 45612,
+    "grandchildPid": 48812,
+    "afterParentExit": {
+      "parentAlive": false,
+      "grandchildAlive": true,
+      "jobPids": [
+        48812
+      ],
+      "accounting": {
+        "totalProcesses": 2,
+        "activeProcesses": 1,
+        "terminatedProcesses": 0
+      }
+    },
+    "taskkillTreeOnDeadParent": "failed: ERROR: The process \"45612\" not found.",
+    "afterTerminateJob": {
+      "grandchildAlive": false,
+      "jobPids": []
+    },
+    "pass": true
+  },
+  "codex": {
+    "binary": "codex app-server (one process hosts all threads)",
+    "idleNoThreads": {
+      "processCount": 1,
+      "workingSetMB": 59.2,
+      "privateMB": 25.7,
+      "processes": [
+        "codex.exe(10612) ws=59.2MB priv=25.7MB"
+      ]
+    },
+    "oneThreadWaitingOnApproval": {
+      "processCount": 8,
+      "workingSetMB": 259.1,
+      "privateMB": 129,
+      "processes": [
+        "codex.exe(10612) ws=152.4MB priv=83.5MB",
+        "codex-code-mode-host.exe(55596) ws=21.6MB priv=10.3MB",
+        "conhost.exe(13864) ws=7.4MB priv=1.2MB",
+        "node_repl.exe(10280) ws=11.5MB priv=4.1MB",
+        "conhost.exe(62164) ws=7.3MB priv=1.2MB",
+        "conhost.exe(29380) ws=7.5MB priv=1.2MB",
+        "node.exe(64276) ws=39.8MB priv=23.6MB",
+        "node_repl.exe(35956) ws=11.5MB priv=4MB"
+      ]
+    },
+    "leftoverPidsAfterGracefulClose": []
+  },
+  "claude": {
+    "binary": "Claude Code (one process per live session, spawned via Agent SDK custom spawn)",
+    "rootPid": 39956,
+    "oneSessionWaitingOnApproval": {
+      "processCount": 2,
+      "workingSetMB": 240.5,
+      "privateMB": 510,
+      "processes": [
+        "conhost.exe(63960) ws=8.7MB priv=1.9MB",
+        "claude.exe(39956) ws=231.8MB priv=508.1MB"
+      ]
+    },
+    "leftoverPidsAfterSessionEnd": []
+  },
+  "notes": [
+    "workingSet = physical RAM currently mapped per process, summed (shared pages counted in each process, so the sum overstates).",
+    "private = committed private bytes (PrivateUsage); this is commit charge, not physical RAM.",
+    "Scope = every live process in the session job at the sample instant (root + descendants)."
+  ]
+}

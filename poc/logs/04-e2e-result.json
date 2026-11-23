@@ -1,0 +1,143 @@
+{
+  "ranAt": "2026-11-22T09:22:50.120Z",
+  "results": [
+    {
+      "id": "T1a",
+      "name": "Claude question and Codex approval are both pending in one inbox",
+      "pass": true,
+      "detail": {
+        "types": [
+          "user_question",
+          "permission_approval"
+        ],
+        "providers": [
+          "claude",
+          "codex"
+        ]
+      }
+    },
+    {
+      "id": "T1b",
+      "name": "session without a question produced no attention item and finished",
+      "pass": true,
+      "detail": "KIWI-7421"
+    },
+    {
+      "id": "T1c",
+      "name": "items carry provider-native ids",
+      "pass": true,
+      "detail": {
+        "claudeToolUseId": "toolu_01KWGQmCiT7VdBrBu1GBmqKK",
+        "codexRpcId": "0",
+        "codexThreadId": "01a20290-4a43-70b0-8e99-374359827fbd"
+      }
+    },
+    {
+      "id": "T1d",
+      "name": "structured content present",
+      "pass": true,
+      "detail": {
+        "options": [
+          "SQLite",
+          "PostgreSQL"
+        ],
+        "command": "\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"node -e \\\"console.log('MARKER_'+(6*7))\\\"\""
+      }
+    },
+    {
+      "id": "T2a",
+      "name": "answer accepted and acknowledged by provider",
+      "pass": true,
+      "detail": {
+        "at": 1795339346450,
+        "evidence": {
+          "via": "tool_result",
+          "isError": false
+        },
+        "latencyMs": 41
+      }
+    },
+    {
+      "id": "T2b",
+      "name": "the answered session resumed with our answer",
+      "pass": true,
+      "detail": "CHOSEN=PostgreSQL"
+    },
+    {
+      "id": "T2c",
+      "name": "the other session was untouched (still pending, still waiting)",
+      "pass": true,
+      "detail": {
+        "itemB": "pending",
+        "sessionB": "waiting_for_user"
+      }
+    },
+    {
+      "id": "T3",
+      "name": "duplicate submit rejected, nothing sent",
+      "pass": true,
+      "detail": "item is resolved; answer not sent"
+    },
+    {
+      "id": "T4a",
+      "name": "decline acknowledged via serverRequest/resolved",
+      "pass": true,
+      "detail": {
+        "at": 1795339347698,
+        "evidence": {
+          "via": "serverRequest/resolved"
+        },
+        "latencyMs": 14
+      }
+    },
+    {
+      "id": "T4b",
+      "name": "declined command did not run",
+      "pass": true,
+      "detail": {
+        "lastCommand": {
+          "status": "declined",
+          "exitCode": null
+        },
+        "lastText": "DECLINED"
+      }
+    },
+    {
+      "id": "T5a",
+      "name": "Codex approval expired after its turn was interrupted",
+      "pass": true,
+      "detail": "turn ended (interrupted)"
+    },
+    {
+      "id": "T5b",
+      "name": "answering the stale card is rejected, nothing sent",
+      "pass": true,
+      "detail": "item is expired; answer not sent"
+    },
+    {
+      "id": "T6a",
+      "name": "Claude approval expired after its turn was interrupted",
+      "pass": true,
+      "detail": "aborted by provider"
+    },
+    {
+      "id": "T6b",
+      "name": "answering the stale card is rejected, nothing sent",
+      "pass": true,
+      "detail": "item is expired; answer not sent"
+    },
+    {
+      "id": "T7",
+      "name": "Codex structured question answered from the same inbox",
+      "pass": true,
+      "detail": "CHOSEN=SQLite"
+    }
+  ],
+  "finalCounts": {
+    "needsAttention": 0,
+    "running": 0,
+    "waiting": 0,
+    "finished": 4,
+    "problems": 2
+  }
+}

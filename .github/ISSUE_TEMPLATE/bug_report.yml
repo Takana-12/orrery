@@ -1,0 +1,60 @@
+name: バグ報告
+description: 期待どおりに動かないことを知らせる
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        報告ありがとうございます。個人のプロジェクトなので、返信や修正の時期は約束できません。
+        **セキュリティ上の問題はここに書かず、Security タブの「Report a vulnerability」から知らせてください。**
+  - type: textarea
+    id: what
+    attributes:
+      label: 起きたこと
+      description: 何をしたら、何が起きたか
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待していたこと
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      placeholder: |
+        1. 新しい作業で …
+        2. …
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: 使っていたエージェント
+      multiple: true
+      options:
+        - Claude Code
+        - Codex
+        - 関係ない
+  - type: input
+    id: version
+    attributes:
+      label: Orrery のバージョン
+      description: package.json の version、またはコミットのハッシュ
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Windows と Node.js のバージョン
+      placeholder: Windows 11 24H2 / Node 24.1.0
+  - type: textarea
+    id: log
+    attributes:
+      label: ログ
+      description: |
+        %LOCALAPPDATA%\AgentControlRoom\control-room.log の該当部分。
+        **会話の内容・パス・環境変数の値など、見せたくないものは消してから貼ってください。**
+      render: text

@@ -1,0 +1,239 @@
+// Parts of a piece of work that several screens show: commands the agent asked for, the human's own steps,
+// and the verdict on the work with its evidence.
+import { act, finishChecks, reportCommand, runCommand, runStep, setStep } from '../logic/actions.js';
+import { clock } from '../logic/format.js';
+import { parseMarkdown } from '../logic/markdown.js';
+import { store } from '../logic/store.js';
+import { isBusy, openPlainStep } from '../logic/selectors.js';
+import { confirmAction, confirmCommand } from './command-dialog.js';
+import { el, put } from './dom.js';
+import { icon } from './icons.js';
+import { go } from './shell.js';
+import { LOOK, VERDICT } from './vocabulary.js';
+
+const sessionOf = (id) => store.state.sessions.find((x) => x.id === id);
+
+/**
+ * Call the work done (it is put away at once, and can be brought back). Work the agent is still on is stopped first,
+ * after asking. Resolves true when it was called done.
+ */
+export async function finishWork(s) {
+  if (isBusy(s) && !(await confirmAction({
+    heading: 'エージェントを止めて完了にします',
+    title: s.taskTitle,
+    text: s.lifecycle === 'queued' ? 'まだ順番待ちの作業です。取り消して、完了にします（いつでも作業に戻せます）。' : 'エージェントはまだ作業中です。いまの作業を中断してから完了にし、片付けます（会話は残り、いつでも作業に戻せます）。',
+    ok: '止めて完了にする',
+  }))) return false;
+  act(s.id, 'accept');
+  return true;
+}
+/** The 完了にする button of a row. */
+export const doneButton = (s, cls = '') => el('button', { class: cls || null, title: 'この作業を完了にして片付ける（いつでも戻せます）', disabled: !!s.busyWith, onclick: () => finishWork(s) }, icon('check', 's'), '完了にする');
+
+/** A button that hands what a command did to the agent, so it can carry on (or fix what failed). */
+function tellAgent(sessionId, command, ok, exitCode, output) {
+  const told = el('span', { class: 'note' });
+  const tell = el('button', { class: ok ? '' : 'primary', onclick: async () => {
+    tell.disabled = true;
+    told.textContent = '送っています…';
+    const m = await reportCommand(sessionId, command, exitCode, output);
+    told.textContent = m.status !== 200 ? (m.body.error || '送れませんでした') : m.body.deferred ? 'いまの作業が終わったら届きます。' : 'エージェントに伝えました。';
+  } }, icon('send', 's'), ok ? '結果をエージェントに伝える' : '失敗をエージェントに伝えて直してもらう');
+  return el('div', { class: 'acts' }, tell, told);
+}
+
+/** Run a command the agent wrote in its reply (not one of the human's steps). The result appears under `host`. */
+async function runAndShow(sessionId, command, btn, host) {
+  const sess = sessionOf(sessionId);
+  if (!sess || !(await confirmCommand({ command, cwd: sess.cwd, title: sess.taskTitle, forStep: false }))) return;
+  btn.disabled = true;
+  host.parentElement?.querySelector(':scope > .run-result')?.remove();
+  const box = el('div', { class: 'run-result' }, icon('running', 's spin'), ' 実行中…');
+  host.after(box);
+  const r = await runCommand(sessionId, command);
+  btn.disabled = false;
+  if (r.status !== 200) return void put(box, icon('fail', 's red'), ' ', r.body.error || `実行できませんでした (${r.status})`);
+  const { ok, exitCode, output } = r.body;
+  box.className = `run-result ${ok ? 'ok' : 'ng'}`;
+  put(box, el('div', { class: 'run-head' }, icon(ok ? 'check' : 'fail', `s ${ok ? 'green' : 'red'}`), el('strong', {}, ok ? '成功しました' : `失敗しました（終了コード ${exitCode ?? '不明'}）`)),
+    output && el('pre', {}, output), tellAgent(sessionId, command, ok, exitCode, output));
+}
+
+/** A command as something to click. Clicking runs it (after the question, unless that was turned off); it never opens anything. */
+export function cmdButton(sessionId, command, run = null) {
+  const b = el('button', { type: 'button', class: 'cmd', title: 'クリックで、この作業のフォルダで実行します' }, command);
+  b.addEventListener('click', (e) => {
+    e.stopPropagation(); // a command inside something clickable (a step that opens its work) only runs
+    if (run) return run(b);
+    runAndShow(sessionId, command, b, b.closest('.md > *, .msg, li, .ticket, .steps') ?? b);
+  });
+  return b;
+}
+
+/** A step's command: asked about, then run; what it left is read on the server and arrives as the updated list. */
+function stepCommand(sess, index, st) {
+  const b = cmdButton(sess.id, st.command, async () => {
+    if (!(await confirmCommand({ command: st.command, cwd: sess.cwd, title: sess.taskTitle, forStep: true }))) return;
+    runStep(sess.id, index, st.command);
+  });
+  b.disabled = !!(st.run && st.run.phase !== 'settled');
+  return b;
+}
+
+/** What the last run of a step's command did, and what reading its output concluded. */
+function runLine(sess, st) {
+  const r = st.run;
+  if (!r) return null;
+  if (r.phase === 'running') return el('div', { class: 'run-state' }, icon('running', 's blue spin'), el('span', {}, '実行中… 終わったら出力を読んで、残りの作業を確かめます。'));
+  const exit = r.ok === null ? '' : `終了コード ${r.ok ? 0 : r.exitCode ?? '不明'}`;
+  if (r.phase === 'reading') return el('div', { class: 'run-state' }, icon('running', 's blue spin'), el('span', {}, `${exit}で終わりました。出力を読んで、残りの作業を確かめています…`));
+  const good = !!st.done;
+  return el('div', { class: `run-state settled ${good ? 'ok' : 'ng'}` },
+    icon(good ? 'check' : 'info', `s ${good ? 'green' : 'amber'}`),
+    el('span', {}, r.note || (good ? '済みました。' : 'まだ済んでいません。')),
+    (r.outputTail || exit) && el('details', { class: 'raw' }, el('summary', {}, `出力（${exit || '終了コード不明'}）`), el('pre', {}, r.outputTail || '（出力なし）')),
+    !good && r.ok !== null && st.command && tellAgent(sess.id, st.command, r.ok, r.exitCode, r.outputTail ?? ''));
+}
+
+/**
+ * The human's own to-do list for a task whose agent work is finished.
+ * In the inbox (`titled`) the whole box opens the work; only its commands do something else (they run). Nothing here
+ * is ticked by a stray click: a step is done when its command's output says so, or when the human says so in the work.
+ */
+export function stepsBox(sess, { titled, aside = null }) {
+  const steps = sess.task.humanSteps ?? [];
+  const left = steps.filter((x) => !x.done).length;
+  const open = () => go(`#/s/${sess.id}`);
+  const box = el('section', { class: `steps${titled ? ' opens' : ''}` },
+    el('div', { class: 'steps-head' }, icon('user', 'amber'),
+      titled ? el('button', { class: 'quiet t', onclick: open }, sess.taskTitle) : el('strong', {}, 'あなたの作業'),
+      !titled && el('span', { class: 'note' }, `残り${left}件。すべて済ませると、この作業は完了になります。`),
+      titled && doneButton(sess, 'steps-done'), aside),
+    // The inbox lists only what is left (and things to look at are in their project's checklist, see checksBox).
+    el('ol', {}, steps.map((st, i) => (titled && !openPlainStep(st) ? null : el('li', { class: `${st.done ? 'done' : ''}${st.check ? ' look' : ''}` },
+      el('div', { class: 'st-line' }, st.check && icon('eye', 's dim'), el('span', { class: 'st' }, st.title),
+        // In the work itself the human can say a step is done (or not): a button that says so, never a stray click.
+        !titled && !(st.run && st.run.phase !== 'settled') && el('button', { class: 'quiet st-mark', title: st.done ? 'まだ済んでいないことにする' : 'この作業を済ませたことにする', onclick: () => {
+          // The last one finishes the work, which is then put away: back to the inbox (it returns, with the reason, if that fails).
+          const finishes = !st.done && steps.every((x, j) => j === i || x.done);
+          setStep(sess.id, i, !st.done);
+          if (finishes) go('#/');
+        } },
+          icon(st.done ? 'restore' : 'check', 's'), st.done ? '戻す' : '済んだ')),
+      // A step that has to wait for something says so, so it is not done too early.
+      st.after && !st.done && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${st.after}`),
+      // The first thing to look at says what brings the change in before it.
+      st.check && !st.done && LOOK[st.check.update]?.first && !steps.slice(0, i).some((x) => x.check && !x.done)
+        && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${LOOK[st.check.update].first}${st.check.how ? `（${st.check.how}）` : ''}`),
+      st.detail && el('div', { class: 'note' }, st.detail),
+      st.command && !st.done && stepCommand(sess, i, st),
+      runLine(sess, st))))),
+    store.errors.has(sess.id) && el('div', { class: 'err' }, store.errors.get(sess.id)));
+  if (titled) {
+    box.title = 'クリックで開く';
+    box.addEventListener('click', (e) => {
+      // Controls inside keep their own meaning; selecting text is not a click either.
+      if (e.target.closest('button, a, summary, details pre, input, label') || getSelection()?.toString()) return;
+      open();
+    });
+  }
+  return box;
+}
+export const stepsSig = (x) => JSON.stringify([x.taskTitle, x.task?.humanSteps, store.errors.get(x.id)]);
+
+/** One line of evidence for a checked task: what ran, how it exited, what is left uncommitted. */
+export function evidenceLine(s) {
+  const v = s.task?.validation;
+  if (!v) return '';
+  const left = v.uncommittedFiles === null ? '' : v.uncommittedFiles ? `、未コミットの変更 ${v.uncommittedFiles}件` : '、未コミットの変更なし';
+  return `${v.command} が終了コード ${v.exitCode ?? '不明'} で${v.ok ? '成功' : '失敗'}（${clock(v.at)}）${left}`;
+}
+
+export function verdictNodes(s) {
+  const t = s.task;
+  if (!t) return [];
+  if (s.completion === 'human_steps') return [stepsBox(s, { titled: false })];
+  const id = s.id;
+  const v = t.validation;
+  const def = VERDICT[s.completion];
+  const evidence = v && el('details', { class: 'raw' }, el('summary', {}, evidenceLine(s)), el('div', { class: 'subject' }, el('pre', {}, v.outputTail || '（出力なし）')));
+  const recheck = t.checkCommand && s.lifecycle === 'turn_finished' && !t.validating && el('button', { onclick: () => act(id, 'check') }, icon('restore', 's'), '検証をやり直す');
+  if (s.completion === 'accepted') return [el('div', { class: 'verdict-line' }, icon(def.icon, def.tone), el('strong', {}, def.word), el('button', { onclick: () => act(id, 'reopen') }, icon('restore', 's'), '作業に戻す')), evidence];
+  if (s.completion === 'validating') return [el('div', { class: 'verdict-line' }, icon(def.icon, `${def.tone} spin`), el('strong', {}, def.word), el('code', {}, t.checkCommand))];
+  if (s.completion === 'candidate') return [el('div', { class: 'verdict-line' }, icon(def.icon, def.tone), el('strong', {}, def.word), el('span', { class: 'note' }, '右上の「完了にする」で片付けられます。'), recheck), evidence];
+  if (s.completion === 'needs_fix') {
+    const auto = t.autoFix ? (t.fixRounds >= t.maxFixRounds ? `自動の修正依頼は上限の${t.maxFixRounds}回に達しました。` : `エージェントに修正を依頼します（${t.fixRounds}/${t.maxFixRounds}回）。`) : '下の欄から修正を指示できます。';
+    return [el('div', { class: 'verdict-line' }, icon(def.icon, def.tone), el('strong', { class: 'red' }, def.word), el('span', { class: 'note' }, auto), recheck), evidence];
+  }
+  return t.checkCommand ? [el('div', { class: 'verdict-line' }, icon('shield', 'dim'), el('span', { class: 'note' }, '返答が終わるたびに検証します: '), el('code', {}, t.checkCommand))] : [];
+}
+
+/**
+ * Agent prose as rendered Markdown. The tree comes from logic/markdown.js and is built with el(), so whatever the agent
+ * wrote is only ever text. Code spans and blocks that are commands become clickable; without a session (a side chat)
+ * they stay plain code, since there is no folder to run them in.
+ */
+export function richText(text, sessionId = null) {
+  return el('div', { class: 'md' }, parseMarkdown(text).map((b) => mdBlock(b, sessionId)));
+}
+function mdBlock(b, sid) {
+  switch (b.type) {
+    case 'heading': return el(`h${Math.min(b.level + 2, 6)}`, { class: `md-h${b.level}` }, mdInline(b.inline, sid));
+    case 'para': return el('p', {}, mdInline(b.inline, sid));
+    case 'code': return el('pre', { class: 'code' }, b.command && sid ? cmdButton(sid, b.command) : b.text);
+    case 'hr': return el('hr');
+    case 'quote': return el('blockquote', {}, b.blocks.map((x) => mdBlock(x, sid)));
+    case 'list': return el(b.ordered ? 'ol' : 'ul', { start: b.ordered && b.start !== 1 ? String(b.start) : null },
+      b.items.map((it) => el('li', { class: it.checked === null ? null : 'task' },
+        it.checked !== null && el('input', { type: 'checkbox', disabled: true, checked: it.checked, 'aria-label': it.checked ? '済み' : '未完了' }),
+        it.blocks.map((x) => mdBlock(x, sid)))));
+    case 'table': return el('div', { class: 'table-wrap' }, el('table', {},
+      el('thead', {}, el('tr', {}, b.head.map((c, k) => el('th', { style: b.align[k] ? `text-align:${b.align[k]}` : null }, mdInline(c, sid))))),
+      el('tbody', {}, b.rows.map((r) => el('tr', {}, r.map((c, k) => el('td', { style: b.align[k] ? `text-align:${b.align[k]}` : null }, mdInline(c, sid))))))));
+    default: return null;
+  }
+}
+function mdInline(nodes, sid) {
+  return nodes.map((n) => {
+    switch (n.t) {
+      case 'text': return n.v;
+      case 'br': return el('br');
+      case 'code': return n.command && sid ? cmdButton(sid, n.command) : el('code', {}, n.v);
+      case 'strong': return el('strong', {}, mdInline(n.c, sid));
+      case 'em': return el('em', {}, mdInline(n.c, sid));
+      case 'del': return el('del', {}, mdInline(n.c, sid));
+      // Opened in the person's browser (the app window itself never navigates away).
+      case 'link': return el('a', { href: n.href, target: '_blank', rel: 'noopener noreferrer', title: n.href }, mdInline(n.c, sid));
+      default: return null;
+    }
+  });
+}
+
+/**
+ * One project's things to look at, from all the works that left them: the one action that comes first, then a checklist
+ * under each work's name. Ticking an item ticks that work's step (a work whose last step is ticked is done and put
+ * away); 完了にする ticks every item left.
+ */
+export function checksBox(g) {
+  const left = g.works.reduce((n, w) => n + w.items.filter((i) => !i.step.done).length, 0);
+  const err = g.works.map((w) => store.errors.get(w.session.id)).find(Boolean);
+  return el('section', { class: 'steps checks' },
+    el('div', { class: 'steps-head' }, icon('eye', 'amber'),
+      el('strong', { class: 't' }, LOOK[g.update]?.heading ?? LOOK.none.heading),
+      el('span', { class: 'note', title: 'プロジェクト' }, g.projectName),
+      el('button', { class: 'steps-done', title: `残りの${left}項目を確かめたことにして、それぞれの作業を完了にする`, onclick: () => finishChecks(g.works) }, icon('check', 's'), '完了にする')),
+    (g.hows.length > 0 || g.commands.length > 0) && el('div', { class: 'look-how' },
+      g.hows.map((h) => el('div', { class: 'note' }, h)),
+      g.commands.map((c) => cmdButton(c.sessionId, c.command))),
+    g.works.map((w) => el('div', { class: 'look-work' },
+      el('button', { class: 'quiet src', title: 'この作業を開く', onclick: () => go(`#/s/${w.session.id}`) }, w.session.taskTitle),
+      el('ul', {}, w.items.map((it) => {
+        const box = el('input', { type: 'checkbox', checked: it.step.done, 'aria-label': it.step.done ? '確かめた' : 'まだ確かめていない' });
+        box.addEventListener('change', () => setStep(w.session.id, it.index, box.checked));
+        return el('li', { class: it.step.done ? 'done' : '' },
+          el('label', {}, box, el('span', { class: 'st' }, it.step.title)),
+          it.step.detail && el('div', { class: 'note where' }, icon('pin', 's dim'), it.step.detail));
+      })))),
+    err && el('div', { class: 'err' }, err));
+}
+export const checksSig = (g) => JSON.stringify([g.update, g.hows, g.commands, g.works.map((w) => [w.session.id, w.session.taskTitle, w.items, store.errors.get(w.session.id)])]);

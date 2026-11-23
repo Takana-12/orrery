@@ -1,0 +1,404 @@
+{
+  "ranAt": "2026-11-23T00:56:35.630Z",
+  "results": [
+    {
+      "id": "S1",
+      "name": "API without the token is rejected",
+      "pass": true,
+      "detail": 401
+    },
+    {
+      "id": "S2",
+      "name": "API from a foreign origin is rejected",
+      "pass": true,
+      "detail": 403
+    },
+    {
+      "id": "S3",
+      "name": "unknown folder is rejected",
+      "pass": true,
+      "detail": "フォルダが見つかりません: ~\\takanaEditor\\no-such-folder"
+    },
+    {
+      "id": "T1a",
+      "name": "Claude question + Codex approval pending in one inbox; no item for the silent session",
+      "pass": true,
+      "detail": {
+        "needsAttention": 2,
+        "running": 0,
+        "queued": 0,
+        "waiting": 2,
+        "turnFinished": 1,
+        "problems": 0,
+        "candidates": 0,
+        "humanTasks": 0,
+        "needsFix": 0,
+        "unread": 1,
+        "archived": 0
+      }
+    },
+    {
+      "id": "T1b",
+      "name": "harness loaded (AGENTS.md codeword)",
+      "pass": true,
+      "detail": "KIWI-7421"
+    },
+    {
+      "id": "T1c",
+      "name": "provider ids + generation recorded",
+      "pass": true,
+      "detail": {
+        "claude": "toolu_016hr9KWyR9gDpzwGg9qVyQq",
+        "codex": "0",
+        "generation": 1
+      }
+    },
+    {
+      "id": "T1d",
+      "name": "raw evidence retrievable for the approval",
+      "pass": true,
+      "detail": "\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"node "
+    },
+    {
+      "id": "T2a",
+      "name": "answer acknowledged by the provider",
+      "pass": true,
+      "detail": {
+        "at": 1795395173594,
+        "evidence": "tool_result"
+      }
+    },
+    {
+      "id": "T2b",
+      "name": "answered session resumed with the answer",
+      "pass": true,
+      "detail": "CHOSEN=PostgreSQL"
+    },
+    {
+      "id": "T2c",
+      "name": "other session untouched",
+      "pass": true
+    },
+    {
+      "id": "T3",
+      "name": "duplicate submit rejected",
+      "pass": true,
+      "detail": "この項目は回答済みのため、回答は送信されませんでした"
+    },
+    {
+      "id": "T3b",
+      "name": "a decision the provider did not offer is rejected, item stays answerable",
+      "pass": true,
+      "detail": "この要求では選べない決定です: acceptForSession"
+    },
+    {
+      "id": "T4",
+      "name": "decline acknowledged; command did not run",
+      "pass": true,
+      "detail": "DECLINED"
+    },
+    {
+      "id": "T5",
+      "name": "Codex: interrupted turn expires the card; answering it sends nothing",
+      "pass": true,
+      "detail": "ターンが終了しました（interrupted）"
+    },
+    {
+      "id": "T6",
+      "name": "Claude: interrupted turn expires the card; session shown as interrupted, not error",
+      "pass": true,
+      "detail": "Claude Codeが要求を取り下げました"
+    },
+    {
+      "id": "T7",
+      "name": "Codex structured question answered",
+      "pass": true,
+      "detail": "CHOSEN=SQLite"
+    },
+    {
+      "id": "T8",
+      "name": "Claude: follow-up message in the same live process",
+      "pass": true,
+      "detail": "AGAIN=PostgreSQL"
+    },
+    {
+      "id": "T9",
+      "name": "Codex: follow-up turn on the same thread",
+      "pass": true,
+      "detail": "AGAIN=KIWI-7421"
+    },
+    {
+      "id": "T10a",
+      "name": "idle Claude session releases its process; conversation kept",
+      "pass": true,
+      "detail": {
+        "beforeProcs": 2,
+        "beforeWsMB": 244,
+        "afterProcs": 0
+      }
+    },
+    {
+      "id": "T10b",
+      "name": "Claude: session resumed in a fresh process with its memory",
+      "pass": true,
+      "detail": "RESUMED=PostgreSQL"
+    },
+    {
+      "id": "T11a",
+      "name": "after a hard kill, no agent process we started is left running (kill-on-close job)",
+      "pass": true,
+      "detail": "orphaned agent processes: 0"
+    },
+    {
+      "id": "T11b",
+      "name": "restart: new generation, history kept",
+      "pass": true,
+      "detail": {
+        "generation": 2,
+        "resolvedKept": 3
+      }
+    },
+    {
+      "id": "T11c",
+      "name": "restart: nothing shown as running; open requests are expired with a reason",
+      "pass": true,
+      "detail": {
+        "G": "interrupted",
+        "H": "interrupted",
+        "reason": "Control Roomが再起動したため回答できません（セッションを再開して再度指示してください）"
+      }
+    },
+    {
+      "id": "T11d",
+      "name": "answering a pre-restart card sends nothing",
+      "pass": true,
+      "detail": "この項目は失効済みのため、回答は送信されませんでした"
+    },
+    {
+      "id": "T12a",
+      "name": "Codex: thread resumed (thread/resume) in a new app-server after restart",
+      "pass": true,
+      "detail": "BACK=KIWI-7421"
+    },
+    {
+      "id": "T12b",
+      "name": "Claude: interrupted session resumed after restart",
+      "pass": true,
+      "detail": "BACK=MANGO-3187"
+    },
+    {
+      "id": "T12c",
+      "name": "transcript persisted across the restart",
+      "pass": true,
+      "detail": "5 entries"
+    },
+    {
+      "id": "T13a",
+      "name": "Claude: file write approval carries the path and the content as a diff",
+      "pass": true,
+      "detail": {
+        "path": "~\\AppData\\Local\\Temp\\control-room-e2e-fg1Cke\\worktrees\\takanaEditor-261123-1e4e46\\poc\\fixtures\\project-a-claude\\e2e-claude.txt",
+        "kind": "add",
+        "diff": "+HELLO_FROM_CLAUDE"
+      }
+    },
+    {
+      "id": "T13b",
+      "name": "Claude: the file is written only after approval, in the session's own work folder",
+      "pass": true,
+      "detail": "~\\AppData\\Local\\Temp\\control-room-e2e-fg1Cke\\worktrees\\takanaEditor-261123-1e4e46\\poc\\fixtures\\project-a-claude\\e2e-claude.txt"
+    },
+    {
+      "id": "T14a",
+      "name": "Codex: file change approval carries the path and diff",
+      "pass": true,
+      "detail": [
+        {
+          "tool": "apply_patch",
+          "change": {
+            "path": "~\\AppData\\Local\\Temp\\control-room-e2e-fg1Cke\\worktrees\\takanaEditor-261123-49d5fe\\poc\\fixtures\\project-b-codex\\e2e-codex.txt",
+            "kind": "add",
+            "diff": "+HELLO_FROM_CODEX"
+          }
+        }
+      ]
+    },
+    {
+      "id": "T14b",
+      "name": "Codex: the file exists after approval, in the session's own work folder",
+      "pass": true,
+      "detail": "DONE"
+    },
+    {
+      "id": "T15a",
+      "name": "Claude: ExitPlanMode arrives as an approval showing the plan text",
+      "pass": true,
+      "detail": "- Create `plan-test.txt` in the project root (the working directory).\n- Write the text `OK` as its content, then confirm"
+    },
+    {
+      "id": "T15b",
+      "name": "Claude: rejecting the plan is acknowledged and nothing is implemented",
+      "pass": true,
+      "detail": "PLAN_REJECTED"
+    },
+    {
+      "id": "T16a",
+      "name": "Claude: MCP elicitation shown as a declinable form with typed fields",
+      "pass": true,
+      "detail": [
+        {
+          "id": "color",
+          "header": null,
+          "text": "Color",
+          "isSecret": false,
+          "optional": false,
+          "multiSelect": false,
+          "allowFreeText": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": null
+            },
+            {
+              "label": "Blue",
+              "description": null
+            }
+          ]
+        },
+        {
+          "id": "shade",
+          "header": null,
+          "text": "Shade (1-9)",
+          "isSecret": false,
+          "optional": true,
+          "multiSelect": false,
+          "allowFreeText": true,
+          "options": []
+        }
+      ]
+    },
+    {
+      "id": "T16b",
+      "name": "Claude: the answer reaches the MCP server with the right types",
+      "pass": true,
+      "detail": "ELICIT_ACTION=accept COLOR=blue SHADE=7"
+    },
+    {
+      "id": "T16c",
+      "name": "Claude: declining the form reaches the MCP server as decline",
+      "pass": true,
+      "detail": "ELICIT_ACTION=decline COLOR=- SHADE=-"
+    },
+    {
+      "id": "T17a",
+      "name": "Codex: the \"allow this MCP tool call?\" prompt is shown as an approval with its text",
+      "pass": true,
+      "detail": {
+        "tool": "mcp:elicit",
+        "subject": "Allow the elicit MCP server to run tool \"pick_color\"?",
+        "cwd": null,
+        "reason": null,
+        "decisions": [
+          "accept",
+          "decline"
+        ]
+      }
+    },
+    {
+      "id": "T17b",
+      "name": "Codex: MCP elicitation form answered; the answer reaches the MCP server",
+      "pass": true,
+      "detail": {
+        "lastText": "ELICIT_ACTION=accept COLOR=blue SHADE=7",
+        "items": [
+          {
+            "type": "permission_approval",
+            "summary": "MCPサーバー「elicit」の確認",
+            "tool": "mcp:elicit"
+          },
+          {
+            "type": "user_question",
+            "summary": "MCPサーバー「elicit」: Pick a color for the sample app"
+          }
+        ]
+      }
+    },
+    {
+      "id": "T18a",
+      "name": "a finished session is flagged as an unseen result",
+      "pass": true,
+      "detail": {
+        "needsAttention": 0,
+        "running": 0,
+        "queued": 0,
+        "waiting": 0,
+        "turnFinished": 11,
+        "problems": 3,
+        "candidates": 0,
+        "humanTasks": 0,
+        "needsFix": 0,
+        "unread": 14,
+        "archived": 0
+      }
+    },
+    {
+      "id": "T18b",
+      "name": "opening it clears the flag",
+      "pass": true
+    },
+    {
+      "id": "T18c",
+      "name": "work that is waiting on the human cannot be archived",
+      "pass": true,
+      "detail": "実行中・人間待ちの作業はアーカイブできません。先に中断してください"
+    },
+    {
+      "id": "T18d",
+      "name": "archiving hides the session from the working counts and deletes nothing",
+      "pass": true,
+      "detail": {
+        "needsAttention": 0,
+        "running": 0,
+        "queued": 0,
+        "waiting": 0,
+        "turnFinished": 11,
+        "problems": 3,
+        "candidates": 0,
+        "humanTasks": 0,
+        "needsFix": 0,
+        "unread": 14,
+        "archived": 1
+      }
+    },
+    {
+      "id": "T18e",
+      "name": "and it can be brought back",
+      "pass": true
+    },
+    {
+      "id": "T18f",
+      "name": "transcript can be fetched incrementally",
+      "pass": true,
+      "detail": "7 -> 6"
+    },
+    {
+      "id": "S4",
+      "name": "UI is served with a CSP that forbids inline script and style",
+      "pass": true,
+      "detail": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    }
+  ],
+  "finalCounts": {
+    "needsAttention": 0,
+    "running": 0,
+    "queued": 0,
+    "waiting": 0,
+    "turnFinished": 12,
+    "problems": 3,
+    "candidates": 0,
+    "humanTasks": 0,
+    "needsFix": 0,
+    "unread": 14,
+    "archived": 0
+  }
+}

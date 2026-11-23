@@ -3,7 +3,7 @@
 // The public repository is a separate clone (default: ../orrery next to this folder; override with ORRERY_PUBLIC_DIR)
 // whose history is not connected to this one, so private history (old files, e-mail addresses) never reaches it.
 // Without --push it only commits in the public clone, so the result can be looked at before it goes out.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -96,7 +96,7 @@ if (hits) fail(`公開してはいけない文字列（ホームフォルダ・�
 if (!skipTests) {
   log('テストを実行しています…');
   try {
-    execFileSync('npm', ['test'], { cwd: root, stdio: 'ignore', shell: true });
+    execSync('npm test', { cwd: root, stdio: 'ignore' }); // through the shell: npm is npm.cmd on Windows
   } catch {
     fail('npm test が失敗しました。直してから実行してください。');
   }

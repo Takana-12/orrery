@@ -21,13 +21,16 @@ export class Accounts {
   private timer: NodeJS.Timeout | null = null;
   private readonly limitCache = new Map<ProviderId, { at: number; limits: UsageLimit[] }>();
   private readonly limitFetch = new Map<ProviderId, Promise<UsageLimit[]>>();
+  private readonly limitAttempt = new Map<ProviderId, number>();
   private readonly models = new Map<ProviderId, Promise<ModelChoice[]>>();
   private readonly rt: Runtime;
   private readonly openExternal: ((url: string) => void) | undefined;
+  private readonly onLimits: (provider: ProviderId, limits: UsageLimit[]) => void;
 
-  constructor(rt: Runtime, openExternal?: (url: string) => void) {
+  constructor(rt: Runtime, openExternal?: (url: string) => void, onLimits: (provider: ProviderId, limits: UsageLimit[]) => void = () => {}) {
     this.rt = rt;
     this.openExternal = openExternal;
+    this.onLimits = onLimits;
   }
 
   /** Check now, then keep an eye on it (a provider can sign the machine out at any time). */
@@ -39,6 +42,8 @@ export class Accounts {
         const waiting = a.loginStartedAt !== null;
         if (waiting && Date.now() - a.loginStartedAt! > 10 * 60_000) a.loginStartedAt = null;
         if (waiting || Date.now() - a.checkedAt > 5 * 60_000) void this.refresh(p);
+        const work = [...this.rt.core.state.sessions.values()].some((s) => s.provider === p && !s.archived && (s.lifecycle === 'running' || s.usageResume));
+        if (this.rt.core.state.settings.autoResumeOnLimit && work && Date.now() - (this.limitAttempt.get(p) ?? 0) >= 60_000) void this.refreshLimits(p).catch(() => {});
       }
     }, 3000);
     this.timer.unref();
@@ -82,6 +87,24 @@ export class Accounts {
     if (c) c.at = 0;
   }
 
+  /** One fetch per service, shared by the UI and the background limit watcher. No model prompt is sent. */
+  refreshLimits(provider: ProviderId): Promise<UsageLimit[]> {
+    const existing = this.limitFetch.get(provider);
+    if (existing) return existing;
+    this.limitAttempt.set(provider, Date.now());
+    const pending = (this.auth[provider].status?.loggedIn === false ? Promise.resolve([]) : this.rt.adapters[provider].limits())
+      .then((limits) => {
+        if (!this.rt.closing) {
+          this.limitCache.set(provider, { at: Date.now(), limits });
+          this.onLimits(provider, limits);
+        }
+        return limits;
+      })
+      .finally(() => this.limitFetch.delete(provider));
+    this.limitFetch.set(provider, pending);
+    return pending;
+  }
+
   /** Rate-limit windows and token totals per service. */
   async usageSummary() {
     const { store } = this.rt;
@@ -95,16 +118,7 @@ export class Accounts {
       let limitsError: string | null = null;
       if (!cached || Date.now() - cached.at > 60_000) {
         // One fetch at a time per service: several screens asking at once share it.
-        let pending = this.limitFetch.get(p);
-        if (!pending) {
-          pending = (this.auth[p].status?.loggedIn === false ? Promise.resolve([]) : this.rt.adapters[p].limits())
-            .then((limits) => {
-              this.limitCache.set(p, { at: Date.now(), limits });
-              return limits;
-            })
-            .finally(() => this.limitFetch.delete(p));
-          this.limitFetch.set(p, pending);
-        }
+        const pending = this.refreshLimits(p);
         if (cached) {
           pending.catch(() => {}); // answer with the last reading now (a fetch takes seconds); the next ask gets the new one
         } else {

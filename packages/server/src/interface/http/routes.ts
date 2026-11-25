@@ -2,6 +2,7 @@
 // calls the application, and shapes the answer.
 import type { App } from '../../app.ts';
 import { HttpError } from '../../application/errors.ts';
+import { MAX_VOICE_BYTES } from '../../application/voice.ts';
 
 /** Provided by the Windows app shell; absent when started from the console. */
 export interface AppUpdater {
@@ -74,11 +75,19 @@ export const ROUTES: Route[] = [
   post('/api/projects', ({ app, body }) => ({ projectId: app.addProject(String(body.path ?? ''), body.name) })),
   post(`/api/projects/${ID}/rename`, ({ app, params, body }) => ({ name: app.renameProject(params[0]!, String(body.name ?? '')) })),
   post(`/api/projects/${ID}/options`, ({ app, params, body }) => {
-    app.setProjectOptions(params[0]!, { useWorktree: body.useWorktree, preamble: body.preamble });
+    app.setProjectOptions(params[0]!, { useWorktree: body.useWorktree, preamble: body.preamble, approvalMode: body.approvalMode, captureKnowledge: body.captureKnowledge, description: body.description });
     return OK;
   }),
   post('/api/pick-folder', async ({ app }) => ({ path: await app.pickFolder() })),
   post('/api/settings', ({ app, body }) => ({ settings: app.setSettings(body) })),
+  // ---- the human's standing preferences (こだわり) ----
+  post('/api/knowledge/domains', ({ app, body }) => ({ domainId: app.setKnowledgeDomain(body ?? {}) })),
+  post(`/api/knowledge/domains/${ID}/remove`, ({ app, params }) => (app.removeKnowledgeDomain(params[0]!), OK)),
+  post('/api/knowledge/entries', ({ app, body }) => ({ entryId: app.addKnowledgeEntry(body ?? {}) })),
+  post(`/api/knowledge/entries/${ID}`, ({ app, params, body }) => (app.updateKnowledgeEntry(params[0]!, body ?? {}), OK)),
+  post(`/api/knowledge/entries/${ID}/remove`, ({ app, params }) => (app.removeKnowledgeEntry(params[0]!), OK)),
+  post('/api/knowledge/seen', ({ app }) => (app.markKnowledgeSeen(), OK)),
+  post('/api/knowledge/tune', ({ app, body }) => (app.sendKnowledgeTune(body?.text), OK)),
   post('/api/app-update/(update|restart)', async ({ appUpdate, params }) => {
     if (!appUpdate) throw new HttpError(400, 'コンソールから起動しているため、ここからは更新できません。');
     try {
@@ -111,7 +120,7 @@ export const ROUTES: Route[] = [
 
   // ---- sessions ----
   post('/api/sessions', async ({ app, body }) => ({ sessionId: await app.startSession(body) })),
-  post(`/api/sessions/${ID}/message`, ({ app, params, body }) => app.sendMessage(params[0]!, String(body.text ?? ''))),
+  post(`/api/sessions/${ID}/message`, ({ app, params, body }) => app.sendMessage(params[0]!, String(body.text ?? ''), { effort: body.effort })),
   post(`/api/sessions/${ID}/interrupt`, async ({ app, params }) => (await app.interrupt(params[0]!), OK)),
   post(`/api/sessions/${ID}/stop`, async ({ app, params }) => (await app.stop(params[0]!), OK)),
   post(`/api/sessions/${ID}/finish`, ({ app, params }) => (app.finishWaiting(params[0]!), OK)),
@@ -123,6 +132,11 @@ export const ROUTES: Route[] = [
   post(`/api/sessions/${ID}/step`, ({ app, params, body }) => app.setStepDone(params[0]!, Number(body.index), body.done !== false)),
   post(`/api/sessions/${ID}/unsend`, ({ app, params }) => (app.cancelDeferred(params[0]!), OK)),
   post(`/api/sessions/${ID}/rename`, ({ app, params, body }) => (app.rename(params[0]!, String(body.title ?? '')), OK)),
+  // ---- voice input: a recording becomes text, the text becomes work to start (started through /api/sessions) ----
+  { method: 'POST', path: /^\/api\/voice\/transcribe$/, rawLimit: MAX_VOICE_BYTES, handle: ({ app, body }) => app.transcribeVoice(body) },
+  post('/api/voice/plan', ({ app, body }) => app.planVoice(body ?? {})),
+  post('/api/voice/tidy', ({ app, body }) => app.tidyVoice(body ?? {})),
+  post('/api/voice/prepare', ({ app }) => (app.prepareVoice(), OK)),
   // ---- side chats ----
   post('/api/chats', ({ app, body }) => ({ chatId: app.startChat(body ?? {}) })),
   post(`/api/chats/${ID}/message`, ({ app, params, body }) => (app.sendChat(params[0]!, String(body.text ?? '')), OK)),

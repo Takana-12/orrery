@@ -1,10 +1,10 @@
 // Parts of a piece of work that several screens show: commands the agent asked for, the human's own steps,
 // and the verdict on the work with its evidence.
 import { act, finishChecks, reportCommand, runCommand, runStep, setStep } from '../logic/actions.js';
-import { clock } from '../logic/format.js';
+import { clock, fullStamp } from '../logic/format.js';
 import { parseMarkdown } from '../logic/markdown.js';
 import { store } from '../logic/store.js';
-import { isBusy, openPlainStep } from '../logic/selectors.js';
+import { inboxStepIndexes, isBusy, openPlainStep } from '../logic/selectors.js';
 import { confirmAction, confirmCommand } from './command-dialog.js';
 import { el, put } from './dom.js';
 import { icon } from './icons.js';
@@ -27,6 +27,11 @@ export async function finishWork(s) {
   act(s.id, 'accept');
   return true;
 }
+/**
+ * Which workspace (project) a piece of work belongs to, shown beside its title so it need not be guessed from the title.
+ * Quiet: a folder shape and the name, nothing when the work has no project name.
+ */
+export const workspaceTag = (s) => s.projectName ? el('span', { class: 'ws', title: `ワークスペース: ${s.projectName}` }, icon('folder', 's'), s.projectName) : null;
 /** The 完了にする button of a row. */
 export const doneButton = (s, cls = '') => el('button', { class: cls || null, title: 'この作業を完了にして片付ける（いつでも戻せます）', disabled: !!s.busyWith, onclick: () => finishWork(s) }, icon('check', 's'), '完了にする');
 
@@ -100,34 +105,44 @@ function runLine(sess, st) {
  * In the inbox (`titled`) the whole box opens the work; only its commands do something else (they run). Nothing here
  * is ticked by a stray click: a step is done when its command's output says so, or when the human says so in the work.
  */
+function stepCheck(sess, i, st) {
+  const busy = !!(st.run && st.run.phase !== 'settled');
+  const box = el('input', { type: 'checkbox', checked: !!st.done, disabled: busy,
+    title: st.done ? 'まだ完了していないことにする' : 'このタスクを完了にする（チャットはアーカイブしません）',
+    'aria-label': st.done ? '完了' : '未完了' });
+  box.addEventListener('change', () => setStep(sess.id, i, box.checked));
+  return el('label', { class: 'st-check' }, box, el('span', { class: 'st' }, st.title));
+}
+
 export function stepsBox(sess, { titled, aside = null }) {
   const steps = sess.task.humanSteps ?? [];
   const left = steps.filter((x) => !x.done).length;
   const open = () => go(`#/s/${sess.id}`);
+  // The inbox shows what can be done now; a step waiting on an earlier one appears once that one is done.
+  const shown = titled ? new Set(inboxStepIndexes(steps)) : null;
+  const waiting = titled ? steps.filter((x, i) => openPlainStep(x) && !shown.has(i)).length : 0;
   const box = el('section', { class: `steps${titled ? ' opens' : ''}` },
     el('div', { class: 'steps-head' }, icon('user', 'amber'),
-      titled ? el('button', { class: 'quiet t', onclick: open }, sess.taskTitle) : el('strong', {}, 'あなたの作業'),
+      titled ? el('button', { class: 'quiet t', onclick: open }, sess.taskTitle, workspaceTag(sess)) : el('strong', {}, 'あなたの作業'),
       !titled && el('span', { class: 'note' }, `残り${left}件。すべて済ませると、この作業は完了になります。`),
       titled && doneButton(sess, 'steps-done'), aside),
     // The inbox lists only what is left (and things to look at are in their project's checklist, see checksBox).
-    el('ol', {}, steps.map((st, i) => (titled && !openPlainStep(st) ? null : el('li', { class: `${st.done ? 'done' : ''}${st.check ? ' look' : ''}` },
-      el('div', { class: 'st-line' }, st.check && icon('eye', 's dim'), el('span', { class: 'st' }, st.title),
-        // In the work itself the human can say a step is done (or not): a button that says so, never a stray click.
-        !titled && !(st.run && st.run.phase !== 'settled') && el('button', { class: 'quiet st-mark', title: st.done ? 'まだ済んでいないことにする' : 'この作業を済ませたことにする', onclick: () => {
-          // The last one finishes the work, which is then put away: back to the inbox (it returns, with the reason, if that fails).
-          const finishes = !st.done && steps.every((x, j) => j === i || x.done);
-          setStep(sess.id, i, !st.done);
-          if (finishes) go('#/');
-        } },
-          icon(st.done ? 'restore' : 'check', 's'), st.done ? '戻す' : '済んだ')),
+    el('ol', {}, steps.map((st, i) => (titled && !shown.has(i) ? null : el('li', { class: `${st.done ? 'done' : ''}${st.check ? ' look' : ''}` },
+      // In the inbox the precondition comes first: it is what has to happen before this step can be done.
+      titled && st.after && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${st.after}`),
+      el('div', { class: 'st-line' },
+        // In the work itself the human ticks a step done (or unticks it), like the home checklist: a checkbox whose
+        // label is the step, crossed out once done. The last one finishes the work; the chat stays open.
+        !titled ? stepCheck(sess, i, st) : el('span', { class: 'st' }, st.title)),
       // A step that has to wait for something says so, so it is not done too early.
-      st.after && !st.done && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${st.after}`),
+      !titled && st.after && !st.done && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${st.after}`),
       // The first thing to look at says what brings the change in before it.
       st.check && !st.done && LOOK[st.check.update]?.first && !steps.slice(0, i).some((x) => x.check && !x.done)
         && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${LOOK[st.check.update].first}${st.check.how ? `（${st.check.how}）` : ''}`),
       st.detail && el('div', { class: 'note' }, st.detail),
       st.command && !st.done && stepCommand(sess, i, st),
       runLine(sess, st))))),
+    waiting > 0 && el('div', { class: 'note' }, `ほか${waiting}件は、先の作業が済んでから表示します。`),
     store.errors.has(sess.id) && el('div', { class: 'err' }, store.errors.get(sess.id)));
   if (titled) {
     box.title = 'クリックで開く';
@@ -139,7 +154,7 @@ export function stepsBox(sess, { titled, aside = null }) {
   }
   return box;
 }
-export const stepsSig = (x) => JSON.stringify([x.taskTitle, x.task?.humanSteps, store.errors.get(x.id)]);
+export const stepsSig = (x) => JSON.stringify([x.taskTitle, x.projectName, x.task?.humanSteps, store.errors.get(x.id)]);
 
 /** One line of evidence for a checked task: what ran, how it exited, what is left uncommitted. */
 export function evidenceLine(s) {
@@ -150,6 +165,12 @@ export function evidenceLine(s) {
 }
 
 export function verdictNodes(s) {
+  if (s.usageResume && !isBusy(s)) {
+    const at = s.usageResume.resetsAt;
+    return [el('div', { class: 'verdict-line' }, icon('clock', 'amber'), el('strong', {}, '利用枠の復活待ち'),
+      el('span', { class: 'note' }, at === null ? '復活時刻を確認でき次第、自動再開を予約します' : `${fullStamp(at + 60_000)}ごろに自動再開`),
+      el('button', { onclick: () => act(s.id, 'interrupt') }, icon('x', 's'), '自動再開を取り消す'))];
+  }
   const t = s.task;
   if (!t) return [];
   if (s.completion === 'human_steps') return [stepsBox(s, { titled: false })];
@@ -220,7 +241,7 @@ export function checksBox(g) {
   return el('section', { class: 'steps checks' },
     el('div', { class: 'steps-head' }, icon('eye', 'amber'),
       el('strong', { class: 't' }, LOOK[g.update]?.heading ?? LOOK.none.heading),
-      el('span', { class: 'note', title: 'プロジェクト' }, g.projectName),
+      workspaceTag(g),
       el('button', { class: 'steps-done', title: `残りの${left}項目を確かめたことにして、それぞれの作業を完了にする`, onclick: () => finishChecks(g.works) }, icon('check', 's'), '完了にする')),
     (g.hows.length > 0 || g.commands.length > 0) && el('div', { class: 'look-how' },
       g.hows.map((h) => el('div', { class: 'note' }, h)),

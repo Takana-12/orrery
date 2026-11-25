@@ -12,9 +12,11 @@
 <div class="banner" id="banner" role="alert" hidden></div>
 <div class="app">
   <nav class="rail" id="rail" aria-label="作業の一覧"></nav>
+  <div class="rail-grip" id="rail-grip" role="separator" aria-orientation="vertical" aria-label="一覧の幅（ドラッグで調整、ダブルクリックで元に戻す）" tabindex="0"></div>
   <main class="main" id="main"></main>
 </div>
 <div class="chat-dock" id="chats"></div>
+<div class="voice" id="voice" role="dialog" aria-modal="true" aria-label="音声入力" tabindex="-1"></div>
 <div class="notices" id="notices" role="status" aria-live="polite"></div>
 <div class="sr-only" id="live" aria-live="polite"></div>
 <script type="module" src="/js/main.js"></script>

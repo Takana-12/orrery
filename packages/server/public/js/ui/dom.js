@@ -37,12 +37,22 @@ export function autoGrow(t) {
   t.style.overflowY = h > max ? 'auto' : 'hidden';
 }
 // A width change re-wraps the text, so the height is measured again (height changes alone are ignored: we cause those).
+// Resize after delivery, on the next frame: changing layout inside ResizeObserver can leave notifications undelivered.
+const pendingGrow = new Set();
+let growFrame = null;
 const growWatch = new ResizeObserver((entries) => {
   for (const { target, contentRect } of entries) {
     if (target._growW === contentRect.width) continue;
     target._growW = contentRect.width;
-    autoGrow(target);
+    pendingGrow.add(target);
   }
+  if (!pendingGrow.size || growFrame !== null) return;
+  growFrame = requestAnimationFrame(() => {
+    growFrame = null;
+    const targets = [...pendingGrow];
+    pendingGrow.clear();
+    for (const target of targets) autoGrow(target);
+  });
 });
 document.addEventListener('input', (e) => { if (e.target instanceof HTMLTextAreaElement) autoGrow(e.target); });
 /** replaceChildren that skips false/null/undefined (so `cond && node` is safe). */
@@ -57,12 +67,19 @@ export function sync(container, list, key, sig, build) {
     let node = old.get(k);
     if (!node || node.dataset.sig !== s) {
       const hadFocus = node && node.contains(document.activeElement);
+      // Where the focus was among the node's controls, so it can go back to the same one (a checkbox, not the first button).
+      const FOCUSABLE = '[tabindex],button,input,select,textarea';
+      const at = hadFocus ? [...node.querySelectorAll(FOCUSABLE)].indexOf(document.activeElement) : -1;
       const fresh = build(item);
       fresh.dataset.key = k;
       fresh.dataset.sig = s;
       if (node) node.replaceWith(fresh);
       node = fresh;
-      if (hadFocus) (node.matches('button,[tabindex]') ? node : node.querySelector('[tabindex],button,input'))?.focus();
+      if (hadFocus) {
+        const target = (at >= 0 && node.querySelectorAll(FOCUSABLE)[at]) || (node.matches('button,[tabindex]') ? node : node.querySelector(FOCUSABLE));
+        // preventScroll: moving the focus must not jump the list (e.g. back to the top after ticking a step).
+        target?.focus({ preventScroll: true });
+      }
     }
     old.delete(k);
     const want = prev ? prev.nextSibling : container.firstChild;

@@ -3,7 +3,7 @@
 import { ClaudeAdapter } from '#provider-claude';
 import type { ProviderSink } from '#core';
 
-const sink = { processSpawned() {}, sessionUpdate() {}, transcript() {}, usage() {}, saveRaw: () => '', attentionOpen: () => '', attentionAcknowledged() {}, attentionWithdrawn() {} } as unknown as ProviderSink;
+const sink = { processSpawned() {}, sessionUpdate() {}, transcript() {}, usage() {}, usageLimits() {}, usageBlocked() {}, saveRaw: () => '', attentionOpen: () => '', attentionAcknowledged() {}, attentionWithdrawn() {} } as unknown as ProviderSink;
 const claude = new ClaudeAdapter(sink);
 
 interface Case {

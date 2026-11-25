@@ -2,7 +2,8 @@
 // then talks to the server and records the outcome in the store; none touches the DOM.
 // Answers are { status, body } (status 200 = done).
 import { api, upload } from './api.js';
-import { actEffect, answerEffect, loginEffect, manyEffect, messageEffect, projectEffect, projectRenameEffect, settingsEffect, stepEffect, stepRunEffect } from './optimistic.js';
+import { actEffect, answerEffect, loginEffect, manyEffect, messageEffect, projectAddEffect, projectEffect, projectRenameEffect, settingsEffect, stepEffect, stepRunEffect } from './optimistic.js';
+import { domainRemoveEffect, domainSetEffect, entryAddEffect, entryRemoveEffect, entryUpdateEffect, knowledgeSeenEffect, knowledgeSettingsEffect, tuneSendEffect } from './knowledge.js';
 import { UNCONFIRMED_MS } from './selectors.js';
 import { store } from './store.js';
 
@@ -99,11 +100,12 @@ let outboxId = 0;
  * Say something to a session. The words show in its conversation at once (store.outbox) and the agent shows as
  * working; they are taken back, with the reason, if they could not be sent.
  */
-export async function sendMessage(sessionId, text) {
+export async function sendMessage(sessionId, text, { effort = store.composerEfforts.get(sessionId) } = {}) {
+  store.composerEfforts.delete(sessionId);
   const mine = { id: ++outboxId, text, at: Date.now() };
   const box = store.outbox.get(sessionId) ?? store.outbox.set(sessionId, []).get(sessionId);
   box.push(mine);
-  const r = await withEffect(messageEffect(sessionId, text), () => api(`/api/sessions/${sessionId}/message`, { text }));
+  const r = await withEffect(messageEffect(sessionId, text, effort), () => api(`/api/sessions/${sessionId}/message`, { text, ...(effort === undefined ? {} : { effort }) }));
   const drop = () => {
     const at = box.indexOf(mine);
     if (at >= 0) box.splice(at, 1);
@@ -153,7 +155,7 @@ export const confirmsCommands = () => store.state?.settings?.confirmCommands !==
 /**
  * Run the command of one of the human's steps. It shows as running at once; the server then reads its output and
  * updates the list (the step is done, or what is still needed takes its place), which arrives with its picture.
- * When that finishes the last step, the work is done and put away: said in a notice, since the row goes with it.
+ * When that finishes the last step, the work is done (the chat is not archived): said in a notice.
  */
 export async function runStep(sessionId, index, command) {
   store.errors.delete(sessionId);
@@ -186,6 +188,7 @@ export const reportCommand = (sessionId, command, exitCode, output) =>
  *   afterQueued()         the screen has been redrawn
  *   onProject(projectId)  which project it went to (a picked folder has been registered by now)
  *   onFail(message, text) it could not be sent: put the words back
+ *   keepDraft             the work did not come from the new-work box (voice): leave what is being written there
  */
 export async function startWork(draft, hooks = {}) {
   const body = { provider: draft.provider, prompt: draft.text + draft.suffix, checkCommand: null, autoFix: false, model: draft.model || null, effort: draft.effort || null, approvalMode: draft.approvalMode, planMode: draft.planMode };
@@ -193,13 +196,19 @@ export async function startWork(draft, hooks = {}) {
   if (draft.provider === 'codex' && draft.codexPolicy && draft.approvalMode !== 'auto') body.codex = { approvalPolicy: draft.codexPolicy };
   const entry = { title: draft.text.trim().replace(/\s+/g, ' ').slice(0, 40), provider: draft.provider, projectName: draft.projectName, sessionId: null, error: null };
   store.sending.push(entry);
-  store.newDraft.prompt = '';
+  if (!hooks.keepDraft) {
+    store.newDraft.prompt = '';
+    store.newDraft.planMode = false;
+  }
   hooks.onQueued?.();
   store.changed();
   hooks.afterQueued?.();
   const fail = (message) => {
     entry.error = message;
-    if (!store.newDraft.prompt.trim()) store.newDraft.prompt = draft.text; // give the words back
+    if (!hooks.keepDraft && !store.newDraft.prompt.trim()) { // give the words back, with the plan-first switch they were sent with
+      store.newDraft.prompt = draft.text;
+      store.newDraft.planMode = !!draft.planMode;
+    }
     hooks.onFail?.(message, draft.text);
     store.changed();
   };
@@ -253,6 +262,30 @@ export async function setSettings(patch) {
   if (r.status !== 200) store.notice(`設定を変えられませんでした: ${r.body.error || r.status}`);
   return r;
 }
+/** Voice input: the AI that plans the work from what was said, and whether the plan waits for the human's go. */
+export async function setVoiceSettings(patch) {
+  const r = await withEffect(settingsEffect({ voice: patch }), () => api('/api/settings', { voice: patch }));
+  if (r.status !== 200) store.notice(`設定を変えられませんでした: ${r.body.error || r.status}`);
+  return r;
+}
+/** Fetch the speech recogniser's model now (it is fetched by itself the first time voice input is used). */
+export async function prepareVoice() {
+  const r = await api('/api/voice/prepare', {});
+  if (r.status !== 200) store.notice(`音声認識モデルを取得できませんでした: ${r.body.error || r.status}`);
+  return r;
+}
+/**
+ * Add a workspace from the settings screen: pick a folder in Explorer, show it in the list at once, then register it.
+ * A refusal takes the row back and says why. Cancelling the picker does nothing.
+ */
+export async function addProjectFromFolder() {
+  const picked = await pickFolder();
+  if (picked.status !== 200) return void store.notice(`フォルダ選択を開けませんでした: ${picked.body.error || picked.status}`);
+  const path = picked.body.path;
+  if (!path) return;
+  const r = await withEffect(projectAddEffect(path), () => registerFolder(path));
+  if (r.status !== 200) store.notice(`プロジェクトを追加できませんでした: ${r.body.error || r.status}`);
+}
 /** A project's display name (the folder stays where it is). */
 export async function renameProject(projectId, name) {
   const r = await withEffect(projectRenameEffect(projectId, name), () => api(`/api/projects/${projectId}/rename`, { name }));
@@ -265,12 +298,85 @@ export async function setProjectWorktree(projectId, useWorktree) {
   if (r.status !== 200) store.notice(`設定を変えられませんでした: ${r.body.error || r.status}`);
   return r;
 }
+/** Whether standing preferences are picked up from the human's words in this project's work. */
+export async function setProjectCapture(projectId, captureKnowledge) {
+  const r = await withEffect(projectEffect(projectId, { captureKnowledge }), () => api(`/api/projects/${projectId}/options`, { captureKnowledge }));
+  if (r.status !== 200) store.notice(`設定を変えられませんでした: ${r.body.error || r.status}`);
+  return r;
+}
+/** How new work in this project handles permission requests unless the new-work screen says otherwise. */
+export async function setProjectApproval(projectId, approvalMode) {
+  const r = await withEffect(projectEffect(projectId, { approvalMode }), () => api(`/api/projects/${projectId}/options`, { approvalMode }));
+  if (r.status !== 200) store.notice(`設定を変えられませんでした: ${r.body.error || r.status}`);
+  return r;
+}
+/** What this project is, in the human's words: read by the AI that sends spoken requests to a workspace. */
+export async function setProjectDescription(projectId, description) {
+  const r = await withEffect(projectEffect(projectId, { description }), () => api(`/api/projects/${projectId}/options`, { description }));
+  if (r.status !== 200) store.notice(`説明を保存できませんでした: ${r.body.error || r.status}`);
+  return r;
+}
 /** The message put at the head of the first message of every new piece of work in this project. */
 export async function setProjectPreamble(projectId, preamble) {
   const r = await withEffect(projectEffect(projectId, { preamble }), () => api(`/api/projects/${projectId}/options`, { preamble }));
   if (r.status !== 200) store.notice(`設定を変えられませんでした: ${r.body.error || r.status}`);
   return r;
 }
+// ---- the human's standing preferences (こだわり) -----------------------------------------------------------------
+
+/** Run a change to the preferences with its effect shown at once; taken back, with the reason, if refused. */
+async function knowledgeChange(effect, url, body, word) {
+  const r = await withEffect(effect, () => api(url, body));
+  if (r.status !== 200) store.notice(`${word}できませんでした: ${r.body.error || r.status}`);
+  return r;
+}
+let tempKnowledge = 0;
+const tempId = (kind) => `tmp-${kind}-${Date.now().toString(36)}-${++tempKnowledge}`;
+
+/** Preference capture/injection switches and the AI choices for capture and the dedicated chat. */
+export function setKnowledgeSettings(patch) {
+  const now = store.state?.settings?.knowledge ?? { capture: true, inject: true };
+  const knowledge = { ...now, ...patch };
+  return knowledgeChange(knowledgeSettingsEffect(patch), '/api/settings', { knowledge }, '設定を変更');
+}
+export const addKnowledgeEntry = (domainId, text, scope = 'all') => knowledgeChange(entryAddEffect(tempId('entry'), { domainId, text, scope }), '/api/knowledge/entries', { domainId, text, scope }, 'こだわりを追加');
+/** Rewrite a preference (an empty text removes it), move it to another area, or change where it holds. */
+export const updateKnowledgeEntry = (entryId, patch) => knowledgeChange(entryUpdateEffect(entryId, patch), `/api/knowledge/entries/${entryId}`, patch, 'こだわりを変更');
+export const removeKnowledgeEntry = (entryId) => knowledgeChange(entryRemoveEffect(entryId), `/api/knowledge/entries/${entryId}/remove`, {}, 'こだわりを削除');
+/** Make an area (`domainId` null) or change one. */
+export function setKnowledgeDomain(domainId, patch) {
+  const id = domainId ?? tempId('domain');
+  return knowledgeChange(domainSetEffect(id, patch), '/api/knowledge/domains', domainId ? { id: domainId, ...patch } : patch, domainId ? '領域を変更' : '領域を追加');
+}
+/** Remove an area; what was in it goes to その他. */
+export const removeKnowledgeDomain = (domainId) => knowledgeChange(domainRemoveEffect(domainId), `/api/knowledge/domains/${domainId}/remove`, {}, '領域を削除');
+/** The human has looked at what was recorded by itself: it is no longer news in the inbox. */
+export function markKnowledgeSeen() {
+  if (!store.state?.knowledge?.entries.some((e) => !e.seen)) return null;
+  return withEffect(knowledgeSeenEffect(), () => api('/api/knowledge/seen', {}));
+}
+
+/**
+ * A message to the こだわり chat: shown at once, read by the server after. Refused: taken back, with the reason, and
+ * the answer says so (the screen puts the words back in the box).
+ */
+export async function sendKnowledgeTune(text) {
+  const r = await withEffect(tuneSendEffect(tempId('tune'), text), () => api('/api/knowledge/tune', { text }));
+  if (r.status !== 200) store.notice(`送れませんでした: ${r.body.error || r.status}`);
+  return r;
+}
+
+/** Put text on the clipboard. Answers whether it worked; says so when it did not. */
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    store.notice('クリップボードにコピーできませんでした');
+    return false;
+  }
+}
+
 export const loadStorage = () => api('/api/storage');
 export const purgeStorage = (olderThanDays) => api('/api/storage/purge', { olderThanDays });
 export const loadAppUpdate = () => api('/api/app-update');

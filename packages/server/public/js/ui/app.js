@@ -9,10 +9,13 @@ import { icon } from './icons.js';
 import { renderRail } from './rail.js';
 import { chatRoom, drawChats } from './side-chat.js';
 import { go, render, route, ui } from './shell.js';
+import { drawVoice, mountVoice, voiceKey } from './voice-layer.js';
 import { kindOf } from './vocabulary.js';
 import { archiveView } from './views/archive.js';
 import { envView } from './views/env.js';
 import { homeView } from './views/home.js';
+import { knowledgeView } from './views/knowledge.js';
+import { knowledgeTuneView } from './views/knowledge-tune.js';
 import { sessionView } from './views/session.js';
 import { settingsView } from './views/settings.js';
 import { usageView } from './views/usage.js';
@@ -24,7 +27,7 @@ function draw() {
   document.body.dataset.view = r.view;
   renderRail(r);
   if (!ui.view || ui.view.key !== key) {
-    ui.view = r.view === 'session' ? sessionView(r.id) : r.view === 'archive' ? archiveView() : r.view === 'settings' ? settingsView() : r.view === 'usage' ? usageView() : r.view === 'env' ? envView(r.id) : homeView();
+    ui.view = r.view === 'session' ? sessionView(r.id) : r.view === 'archive' ? archiveView() : r.view === 'settings' ? settingsView() : r.view === 'knowledge' ? knowledgeView() : r.view === 'knowledge-tune' ? knowledgeTuneView() : r.view === 'usage' ? usageView() : r.view === 'env' ? envView(r.id) : homeView();
     $('main').scrollTop = 0;
   }
   ui.view.update(r);
@@ -33,6 +36,7 @@ function draw() {
   if (r.view !== 'session') document.title = n ? `(${n}) 要対応 — Orrery` : 'Orrery';
   drawNotices();
   drawChats();
+  drawVoice();
   drawShutdown();
   notify();
 }
@@ -87,8 +91,10 @@ function onKey(e) {
   const a = document.activeElement;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(a?.tagName ?? '') && !/^(radio|checkbox)$/.test(a?.type ?? '');
   if (document.querySelector('.menu') || store.shuttingDown) return;
-  // Ctrl+A opens a side chat from anywhere. In a box with something written in it, it keeps selecting all of it.
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'a' && !(typing && a.value)) {
+  // Voice input: holding Space speaks (a short press is still the shortcut below); while its layer is open, every key is its own.
+  if (voiceKey(e, typing)) return;
+  // Ctrl+M opens a side chat from anywhere, even while typing (Ctrl+A stays "select all").
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'm') {
     e.preventDefault();
     return void openChat(chatRoom());
   }
@@ -118,7 +124,7 @@ function onKey(e) {
   if (e.key === 'Enter' && !typing && current === a && current?.dataset.collapsed) { e.preventDefault(); return void current.querySelector('.tg')?.click(); }
   if (typing || e.ctrlKey || e.altKey || e.metaKey) return;
   // Space and n both open the home screen from anywhere with the cursor already in the new-work box; i opens it as it is.
-  // (Space also stops re-pressing whatever button has focus.)
+  // (Space also stops re-pressing whatever button has focus.) Held, Space opens voice input instead (voice-layer.js).
   if (e.key === ' ' && !/^(radio|checkbox)$/.test(a?.type ?? '')) { go('#/new'); e.preventDefault(); }
   else if (e.key === 'n') { go('#/new'); e.preventDefault(); }
   else if (e.key === 'i') { go('#/'); e.preventDefault(); }
@@ -138,6 +144,7 @@ export function mount() {
   store.subscribe(draw);
   window.addEventListener('hashchange', () => render());
   document.addEventListener('keydown', onKey);
+  mountVoice();
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') render(); });
   setInterval(() => { if (store.state && document.visibilityState === 'visible') render(); }, 30000); // keep "3分" ages honest
 }

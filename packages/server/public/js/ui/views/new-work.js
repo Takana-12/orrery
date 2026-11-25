@@ -3,6 +3,7 @@
 import { pickFolder, registerFolder, startWork } from '../../logic/actions.js';
 import { defaultChoice, ensureModels, stillValid } from '../../logic/ai.js';
 import { store } from '../../logic/store.js';
+import { beginVoice } from '../../logic/voice.js';
 import { aiPicker } from '../ai-picker.js';
 import { attachments } from '../attachments.js';
 import { autoGrow, el, put } from '../dom.js';
@@ -37,7 +38,10 @@ export function newWorkForm() {
     { value: '', label: '別のフォルダを開く', short: '別のフォルダ', icon: 'plus', sep: store.state.projects.length > 0 || !!picked },
   ];
   let current = projects.some((p) => p.id === remember('crProject')) ? remember('crProject') : (projects[0]?.id ?? '');
-  const choose = (v) => { current = v; project.set(v, projectOptions()); useWorkspaceChoice(v); syncForm(); };
+  const choose = (v) => {
+    if (v !== current) store.newDraft.planMode = false; // plan-first is for one request in one workspace
+    current = v; project.set(v, projectOptions()); useWorkspaceChoice(v); syncForm();
+  };
   // "別のフォルダを開く" goes straight to Explorer; until a folder is chosen the chip keeps showing the one it had.
   const project = picker({
     ic: 'folder', label: 'プロジェクト', value: current, options: projectOptions(),
@@ -113,7 +117,6 @@ export function newWorkForm() {
       if (c.provider === shownProv) return;
       shownProv = c.provider;
       remember('crProvider', c.provider);
-      approval.set(savedApproval(c.provider), approvalFor(c.provider));
       syncForm();
     },
   });
@@ -132,7 +135,6 @@ export function newWorkForm() {
       if (c.provider !== shownProv) {
         shownProv = c.provider;
         remember('crProvider', c.provider);
-        approval.set(savedApproval(c.provider), approvalFor(c.provider));
       }
       syncForm();
     };
@@ -142,10 +144,16 @@ export function newWorkForm() {
   const provider = { get: () => ai.get().provider };
 
   const approvalFor = (prov) => APPROVAL_OPTS.filter((o) => o.value !== 'edits' || prov === 'claude');
-  const savedApproval = (prov) => { const k = remember(`crApproval:${prov}`); return approvalFor(prov).some((o) => o.value === k) ? k : 'ask'; };
+  // Approvals: start as the project's own setting (settings screen; a folder not yet a project: the agent's review),
+  // can be switched for this one piece of work. A mode this agent does not offer becomes "ask every time".
+  const approvalDefault = (prov) => {
+    const want = store.state.projects.find((x) => x.id === project.get())?.approvalMode ?? 'auto';
+    return approvalFor(prov).some((o) => o.value === want) ? want : 'ask';
+  };
+  let apFor = '';
   const approval = picker({
-    ic: 'shield', label: '承認', value: savedApproval(provider.get()), options: approvalFor(provider.get()), iconOnly: true,
-    onChange: (v) => { remember(`crApproval:${provider.get()}`, v); syncForm(); },
+    ic: 'shield', label: '承認', value: approvalDefault(provider.get()), options: approvalFor(provider.get()), iconOnly: true,
+    onChange: () => syncForm(),
   });
   const policy = picker({
     ic: 'eye', label: '確認するタイミング（Codex）', value: '',
@@ -160,11 +168,14 @@ export function newWorkForm() {
     wt.setAttribute('aria-label', wt.title);
   };
   wt.addEventListener('click', () => { wt.setAttribute('aria-pressed', String(wt.getAttribute('aria-pressed') !== 'true')); paintWt(); });
-  const plan = el('button', { type: 'button', class: 'chip', 'aria-pressed': 'false', title: '先に計画を出させて、承認してから実装させる', 'aria-label': '先に計画を出させる' }, icon('plan', 's'));
-  plan.addEventListener('click', () => plan.setAttribute('aria-pressed', String(plan.getAttribute('aria-pressed') !== 'true')));
+  // Plan first: kept in store.newDraft so it survives a trip to another screen, but never saved per workspace.
+  const plan = el('button', { type: 'button', class: 'chip', 'aria-pressed': String(store.newDraft.planMode), title: '先に計画を出させて、承認してから実装させる', 'aria-label': '先に計画を出させる' }, icon('plan', 's'));
+  plan.addEventListener('click', () => { store.newDraft.planMode = !store.newDraft.planMode; plan.setAttribute('aria-pressed', String(store.newDraft.planMode)); });
 
   const syncForm = () => {
     const prov = provider.get();
+    const apDefault = approvalDefault(prov);
+    if (apFor !== `${project.get()}|${prov}|${apDefault}`) { apFor = `${project.get()}|${prov}|${apDefault}`; approval.set(apDefault, approvalFor(prov)); }
     policy.node.hidden = prov !== 'codex' || approval.get() === 'auto';
     const p = store.state.projects.find((x) => x.id === project.get());
     // Name the workspace in the box itself, so a request is not typed into the wrong one by mistake.
@@ -173,16 +184,19 @@ export function newWorkForm() {
     envLink.hidden = !p;
     envCount.textContent = p?.envCount ? String(p.envCount) : '';
     const wtDefault = p?.useWorktree !== false;
+    plan.setAttribute('aria-pressed', String(store.newDraft.planMode));
     if (wtFor !== `${project.get()}|${wtDefault}`) { wtFor = `${project.get()}|${wtDefault}`; wt.setAttribute('aria-pressed', String(wtDefault)); paintWt(); }
     const out = store.state.auth[prov].loggedIn === false;
     start.disabled = out;
     const sig = `${prov}|${JSON.stringify(store.state.auth[prov])}`;
     if (authSlot.dataset.sig !== sig) { authSlot.dataset.sig = sig; put(authSlot, out && loginNotice(prov)); }
   };
+  // Voice input for the hand on the mouse: the same layer that holding Space opens.
+  const speak = el('button', { type: 'button', class: 'quiet ib', title: '音声で頼む（Space 長押し）', 'aria-label': '音声で頼む', onclick: () => beginVoice('toggle') }, icon('mic'));
   const card = el('div', { class: 'composer' });
   const att = attachments('new', prompt, card, (m) => { err.textContent = m; });
   card.append(prompt,
-    el('div', { class: 'bar one-line' }, att.button, project.node, envLink, ai.node, approval.node, policy.node, plan, wt, el('span', { class: 'grow' }), start));
+    el('div', { class: 'bar one-line' }, att.button, speak, project.node, envLink, ai.node, approval.node, policy.node, plan, wt, el('span', { class: 'grow' }), start));
   const form = el('form', { class: 'new' }, authSlot, err, sentNote, el('div', { class: 'above-box' }, att.tray), el('div', { class: 'dock' }, card));
   prompt.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); form.requestSubmit(); } });
   // Sending shows at once: the box empties, the work appears in the rail as "送信中", and this screen stays ready for
@@ -201,7 +215,7 @@ export function newWorkForm() {
       model: ai.get().model,
       effort: ai.get().effort,
       approvalMode: approval.get(),
-      planMode: plan.getAttribute('aria-pressed') === 'true',
+      planMode: store.newDraft.planMode,
       worktree: wt.getAttribute('aria-pressed') === 'true',
       codexPolicy: policy.get(),
       projectId: folderOf(project.get()) ? '' : project.get(),
@@ -240,6 +254,13 @@ export function newWorkForm() {
   return {
     node: form,
     focus() { prompt.focus(); autoGrow(prompt); },
-    update() { refreshProjects(); syncForm(); paintSent(); },
+    update() {
+      // Words handed over from voice input, to be corrected by hand: they never replace something already written.
+      if (store.newDraft.fill !== null) {
+        if (!prompt.value.trim()) { prompt.value = store.newDraft.prompt = store.newDraft.fill; autoGrow(prompt); }
+        store.newDraft.fill = null;
+      }
+      refreshProjects(); syncForm(); paintSent();
+    },
   };
 }

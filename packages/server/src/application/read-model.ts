@@ -1,9 +1,10 @@
 // Read model: the one document the UI is sent. Assembled from the core's state plus what each service knows
 // (queue places, processes, folders, sign-ins). Nothing here changes anything.
-import { MAX_FIX_ROUNDS, completionOf } from '#core';
+import { KNOWLEDGE_HEADING, KNOWLEDGE_LIMITS, MAX_FIX_ROUNDS, completionOf, domainsInOrder } from '#core';
 import type { AttentionItem, ProviderCapabilities, ProviderId } from '#core';
 import type { Accounts } from './accounts.ts';
 import type { Journal } from './journal.ts';
+import type { KnowledgeTune } from './knowledge-tune.ts';
 import type { Processes } from './processes.ts';
 import type { PullRequests } from './pull-requests.ts';
 import type { Runtime } from './runtime.ts';
@@ -11,6 +12,7 @@ import type { Scheduler } from './scheduler.ts';
 import type { Secrets } from './secrets.ts';
 import type { Sessions } from './sessions.ts';
 import type { SideChats } from './side-chats.ts';
+import type { Voice } from './voice.ts';
 import type { Workspaces } from './workspaces.ts';
 
 export interface ReadModelDeps {
@@ -20,6 +22,8 @@ export interface ReadModelDeps {
   journal: Journal;
   sessions: Sessions;
   chats: SideChats;
+  knowledgeTune: KnowledgeTune;
+  voice: Voice;
   accounts: Accounts;
   secrets: Secrets;
   pullRequests: PullRequests;
@@ -88,8 +92,21 @@ export function snapshot(rt: Runtime, d: ReadModelDeps) {
     // Open requests, plus a bounded tail of settled ones: the page never needs the whole history.
     items: [...items.filter((i) => i.status === 'pending' || i.status === 'answering'), ...items.filter((i) => i.status !== 'pending' && i.status !== 'answering').slice(-300)].sort((a, b) => a.createdAt - b.createdAt).map(decorate),
     sessions,
+    /** The human's standing preferences, by area, with the limits the settings screen measures them against. */
+    knowledge: {
+      domains: domainsInOrder(st.knowledge),
+      entries: [...st.knowledge.entries.values()].sort((a, b) => a.createdAt - b.createdAt),
+      unseen: [...st.knowledge.entries.values()].filter((e) => !e.seen).length,
+      limits: KNOWLEDGE_LIMITS,
+      /** The heading the preferences go under, so the screen can measure what is sent exactly. */
+      heading: KNOWLEDGE_HEADING,
+      /** The こだわり chat: its conversation and whether a message is being read. */
+      tune: d.knowledgeTune.view(),
+    },
     /** Side chats: conversations beside the work. Not work: never in the lists, the counts or the inbox. */
     chats: d.chats.view(),
+    /** Voice input: whether the speech recogniser's model is on this machine yet. */
+    voice: d.voice.view(),
     capabilities: capabilities(rt),
   };
 }

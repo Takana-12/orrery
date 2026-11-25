@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ControlCore, MemoryEventStore, completionOf, fold } from '../src/index.ts';
+import { ControlCore, MemoryEventStore, PROJECT_DESCRIPTION_MAX, completionOf, fold } from '../src/index.ts';
 import type { AttentionAnswer, Question } from '../src/index.ts';
 
 const q: Question = {
@@ -267,13 +267,13 @@ test('completion follows evidence: a finished turn is not a finished task', () =
 
 test('settings are clamped and survive a restart; tasks can be renamed', () => {
   const { core, store } = setup();
-  assert.deepEqual(core.setSettings({ maxConcurrent: 0 }), { maxConcurrent: 1, minFreeMemoryMB: 0, confirmCommands: true, preamble: '', sideChat: { provider: 'claude', model: 'sonnet', effort: 'low' } });
+  assert.deepEqual(core.setSettings({ maxConcurrent: 0 }), { maxConcurrent: 1, minFreeMemoryMB: 0, confirmCommands: true, autoResumeOnLimit: true, preamble: '', sideChat: { provider: 'claude', model: 'sonnet', effort: 'low' }, knowledge: { capture: true, inject: true }, voice: { plannerAi: { provider: 'claude', model: 'haiku', effort: '' }, confirm: true } });
   core.setSettings({ maxConcurrent: 3, minFreeMemoryMB: 2048, confirmCommands: false, preamble: '日本語で答えて', sideChat: { provider: 'codex' as const, model: ' gpt-6-luna ', effort: 'low' } });
   const projectId = core.addProject('p', 'C:\\work\\s');
   const s = core.createSession({ projectId, provider: 'codex', title: 'first words of the prompt' });
   core.renameTask(s.id, '  ログイン画面の\n修正  ');
   const rebuilt = fold(store.readAll());
-  assert.deepEqual(rebuilt.settings, { maxConcurrent: 3, minFreeMemoryMB: 2048, confirmCommands: false, preamble: '日本語で答えて', sideChat: { provider: 'codex', model: 'gpt-6-luna', effort: 'low' } });
+  assert.deepEqual(rebuilt.settings, { maxConcurrent: 3, minFreeMemoryMB: 2048, confirmCommands: false, autoResumeOnLimit: true, preamble: '日本語で答えて', sideChat: { provider: 'codex', model: 'gpt-6-luna', effort: 'low' }, knowledge: { capture: true, inject: true }, voice: { plannerAi: { provider: 'claude', model: 'haiku', effort: '' }, confirm: true } });
   assert.equal(rebuilt.tasks.get(s.taskId)!.title, 'ログイン画面の 修正');
 });
 
@@ -370,6 +370,22 @@ test('a project uses worktrees by default; the setting is per project and surviv
   assert.equal(again.state.projects.get(b)!.useWorktree, true);
 });
 
+test("a project leaves approvals to the agent's review by default; the setting is per project and survives a restart", () => {
+  const { core, store } = setup();
+  const a = core.addProject('a', 'C:\work\ap-a');
+  const b = core.addProject('b', 'C:\work\ap-b');
+  assert.equal(core.state.projects.get(a)!.approvalMode, 'auto');
+  core.setProjectOptions(a, { approvalMode: 'ask' });
+  assert.equal(core.state.projects.get(a)!.approvalMode, 'ask');
+  assert.equal(core.state.projects.get(a)!.useWorktree, true, 'the worktree option is left alone');
+  assert.equal(core.state.projects.get(b)!.approvalMode, 'auto');
+  assert.throws(() => core.setProjectOptions(a, { approvalMode: 'yolo' as any }));
+  assert.equal(core.state.projects.get(a)!.approvalMode, 'ask');
+  const again = setup(store).core;
+  assert.equal(again.state.projects.get(a)!.approvalMode, 'ask');
+  assert.equal(again.state.projects.get(b)!.approvalMode, 'auto');
+});
+
 test("a project can be renamed; the name is tidied, an empty one refused, and it survives a restart", () => {
   const { core, store } = setup();
   const a = core.addProject('a', 'C:\work\rn-a');
@@ -381,6 +397,26 @@ test("a project can be renamed; the name is tidied, an empty one refused, and it
   assert.throws(() => core.renameProject(a, '   '));
   assert.equal(core.state.projects.get(a)!.name, '新しい 名前');
   assert.equal(setup(store).core.state.projects.get(a)!.name, '新しい 名前');
+});
+
+test("a project's description is its own, trimmed and bounded, changes nothing else, and survives a restart", () => {
+  const { core, store } = setup();
+  const a = core.addProject('a', 'C:\work\pd-a');
+  const b = core.addProject('b', 'C:\work\pd-b');
+  assert.equal(core.state.projects.get(a)!.description, '', 'a new project has none');
+  core.setProjectOptions(a, { preamble: '日本語で' });
+  core.setProjectOptions(a, { description: '  Unity製の2Dゲーム\n敵AIはここ  ' });
+  assert.equal(core.state.projects.get(a)!.description, 'Unity製の2Dゲーム\n敵AIはここ');
+  assert.equal(core.state.projects.get(a)!.preamble, '日本語で', 'the description leaves the default message alone');
+  assert.equal(core.state.projects.get(b)!.description, '');
+  const before = store.readAll().length;
+  core.setProjectOptions(a, { description: 'Unity製の2Dゲーム\n敵AIはここ ' });
+  assert.equal(store.readAll().length, before, 'the same words again record nothing');
+  core.setProjectOptions(b, { description: 'x'.repeat(5000) });
+  assert.equal(core.state.projects.get(b)!.description.length, PROJECT_DESCRIPTION_MAX);
+  const again = setup(store).core;
+  assert.equal(again.state.projects.get(a)!.description, 'Unity製の2Dゲーム\n敵AIはここ');
+  assert.equal(again.state.projects.get(a)!.preamble, '日本語で');
 });
 
 test("a project's default message is its own, changes nothing else, and survives a restart", () => {

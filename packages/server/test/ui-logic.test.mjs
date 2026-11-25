@@ -4,9 +4,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { store } from '../public/js/logic/store.js';
-import { act, renameProject, runStep, sendAnswer, sendMessage, setProjectPreamble, setProjectWorktree, setStep, shutdownApp, startAppUpdate } from '../public/js/logic/actions.js';
+import { composerChoice, ensureModels, sessionEfforts } from '../public/js/logic/ai.js';
+import { act, addProjectFromFolder, renameProject, runStep, sendAnswer, sendMessage, setProjectApproval, setProjectDescription, setProjectPreamble, setProjectWorktree, setStep, shutdownApp, startAppUpdate } from '../public/js/logic/actions.js';
 import { fullStamp, leftTone, stamp } from '../public/js/logic/format.js';
-import { ARCHIVE_FOLD, advanceAccordion, archiveModel, busyCount, checkGroups, inInbox, inboxModel, isOpen, limitsModel, railModel, sessionModel } from '../public/js/logic/selectors.js';
+import { ARCHIVE_FOLD, advanceAccordion, archiveModel, busyCount, checkGroups, inInbox, inboxModel, inboxStepIndexes, isOpen, limitsModel, railModel, sessionModel } from '../public/js/logic/selectors.js';
 import { parseRoute, routeKey } from '../public/js/logic/route.js';
 import { looksLikeCommand, toolSummary } from '../public/js/logic/text.js';
 import { inline, parseMarkdown, plainText } from '../public/js/logic/markdown.js';
@@ -31,12 +32,59 @@ function reset(snap) {
   store.errors.clear();
   store.notices.length = 0;
   store.outbox.clear();
+  store.composerEfforts.clear();
   store.expanded.clear();
   store.lastOpenIds = [];
   store.userCollapsed = false;
   store.receive(snap);
 }
 const get = (id) => store.state.sessions.find((s) => s.id === id);
+
+test('the effort control keeps saved/drafted values while model metadata loads and follows the actual model', async () => {
+  const s = sess('a', { provider: 'claude', model: 'claude-sonnet-5-5', requestedModel: null, effort: 'high' });
+  reset(snapshot([s, sess('b', { effort: 'medium' })]));
+  assert.equal(composerChoice(s).effort, 'high');
+  assert.deepEqual(sessionEfforts(s), [], 'no guessed levels before the provider answers');
+  store.composerEfforts.set('a', 'low');
+  server(200, { models: [{ id: 'sonnet', efforts: ['low', 'medium', 'high'] }, { id: 'claude-sonnet-5-5', efforts: ['low', 'high'] }] });
+  await ensureModels('claude');
+  assert.deepEqual(sessionEfforts(s), ['low', 'high'], 'the actual model takes precedence over its alias');
+  assert.deepEqual(sessionEfforts({ ...s, model: 'claude-sonnet-5-6' }), ['low', 'medium', 'high'], 'default Claude sessions use the reported family alias');
+  assert.deepEqual(sessionEfforts({ ...s, model: 'unknown' }), [], 'unrecognized models do not pick a different model');
+  store.receive(snapshot([s, sess('b', { effort: 'medium' })]));
+  assert.equal(composerChoice(s).effort, 'low', 'server pushes and trips to another screen keep the unsent choice');
+  assert.equal(get('a').effort, 'high', 'selecting has not saved anything yet');
+  assert.equal(composerChoice(get('b')).effort, 'medium');
+});
+
+test('a follow-up sends its drafted effort with the message and rolls back immediately on refusal', async () => {
+  reset(snapshot([sess('a', { effort: 'medium', model: 'same-model', provider: 'codex' }), sess('b', { effort: 'low' })]));
+  store.composerEfforts.set('a', 'high');
+  store.composerEfforts.set('b', 'medium');
+  const calls = server(400);
+  const sending = sendMessage('a', 'more');
+  assert.equal(get('a').effort, 'high', 'selected effort shows before the server answers');
+  assert.equal(get('a').model, 'same-model');
+  assert.equal(get('b').effort, 'low', 'other sessions are unchanged');
+  assert.deepEqual(calls, [{ url: '/api/sessions/a/message', body: { text: 'more', effort: 'high' } }]);
+  await sending;
+  assert.equal(get('a').effort, 'medium');
+  assert.equal(store.composerEfforts.has('a'), false, 'refused setting is not silently sent again');
+  assert.equal(store.composerEfforts.get('b'), 'medium');
+  assert.equal(store.outbox.get('a').length, 0);
+});
+
+test('a confirmed effort stays visible until the server picture arrives, including for a held message', async () => {
+  reset(snapshot([sess('a', { effort: 'medium', lifecycle: 'running' })]));
+  const calls = server(200, { deferred: true });
+  await sendMessage('a', 'after this', { effort: 'high' });
+  assert.equal(get('a').effort, 'high');
+  assert.equal(get('a').deferredMessage, 'after this');
+  assert.equal(calls[0].body.effort, 'high');
+  store.receive(snapshot([sess('a', { effort: 'high', lifecycle: 'running', deferredMessage: 'after this' })]));
+  assert.equal(get('a').effort, 'high', 'no old-value flash');
+  assert.equal(store.effects.length, 0);
+});
 
 test('every piece of work that is not put away can be found in the inbox', () => {
   const lifecycles = ['queued', 'running', 'waiting_for_user', 'turn_finished', 'interrupted', 'error', 'unknown'];
@@ -145,16 +193,17 @@ test('a message shows in the conversation at once; where it goes depends on what
   assert.equal(get('idle').lifecycle, 'turn_finished');
 });
 
-test('ticking the last of the human\'s steps finishes the work at once', async () => {
+test("ticking the last of the human's steps finishes the work at once, without archiving the chat", async () => {
   const steps = () => [{ title: 'a', done: true }, { title: 'b', done: false }];
   reset(snapshot([sess('a', { completion: 'human_steps', task: { humanSteps: steps() } })]));
   server(409);
   const pending = setStep('a', 1, true);
   assert.equal(get('a').task.humanSteps[1].done, true);
-  assert.equal(get('a').archived, true);
+  assert.equal(get('a').completion, 'accepted');
+  assert.equal(get('a').archived, false, 'finishing a task is not archiving its chat');
   await pending;
   assert.equal(get('a').task.humanSteps[1].done, false, 'taken back');
-  assert.equal(get('a').archived, false);
+  assert.equal(get('a').completion, 'human_steps');
 });
 
 test("running a step's command shows at once, never archives by itself, and a refusal takes it back", async () => {
@@ -263,6 +312,23 @@ test('switching the worktree setting of a project shows at once and comes back i
   assert.equal(store.notices.length, 1);
 });
 
+test("a project's approval setting shows at once and comes back if the server refuses", async () => {
+  const snap = { ...snapshot([]), projects: [{ id: 'p1', name: 'p', rootPath: 'C:/p', useWorktree: true, approvalMode: 'auto', envCount: 0 }] };
+  reset(snap);
+  let calls = server(200);
+  const done = setProjectApproval('p1', 'ask');
+  assert.equal(store.state.projects[0].approvalMode, 'ask');
+  await done;
+  assert.deepEqual(calls[0].body, { approvalMode: 'ask' });
+  reset(snap);
+  calls = server(500);
+  const refused = setProjectApproval('p1', 'edits');
+  assert.equal(store.state.projects[0].approvalMode, 'edits');
+  await refused;
+  assert.equal(store.state.projects[0].approvalMode, 'auto');
+  assert.equal(store.notices.length, 1);
+});
+
 test("a project's default message shows at once and comes back if the server refuses", async () => {
   const snap = { ...snapshot([]), projects: [{ id: 'p1', name: 'p', rootPath: 'C:/p', useWorktree: true, preamble: '', envCount: 0 }] };
   reset(snap);
@@ -277,6 +343,24 @@ test("a project's default message shows at once and comes back if the server ref
   assert.equal(store.state.projects[0].preamble, '日本語で');
   await refused;
   assert.equal(store.state.projects[0].preamble, '');
+  assert.equal(store.notices.length, 1);
+});
+
+test("a project's description shows at once and comes back if the server refuses", async () => {
+  const snap = { ...snapshot([]), projects: [{ id: 'p1', name: 'p', rootPath: 'C:/p', useWorktree: true, preamble: '', description: '', envCount: 0 }] };
+  reset(snap);
+  let calls = server(200);
+  const done = setProjectDescription('p1', '  2Dゲーム  ');
+  assert.equal(store.state.projects[0].description, '2Dゲーム', 'trimmed the way the server keeps it');
+  await done;
+  assert.ok(calls[0].url.endsWith('/api/projects/p1/options'));
+  assert.deepEqual(calls[0].body, { description: '  2Dゲーム  ' });
+  reset(snap);
+  calls = server(500);
+  const refused = setProjectDescription('p1', '2Dゲーム');
+  assert.equal(store.state.projects[0].description, '2Dゲーム');
+  await refused;
+  assert.equal(store.state.projects[0].description, '');
   assert.equal(store.notices.length, 1);
 });
 
@@ -301,6 +385,48 @@ test("renaming a project shows at once everywhere its name appears, and is taken
   assert.equal(store.state.projects[0].name, 'p');
   assert.equal(store.state.sessions[0].projectName, 'p');
   assert.equal(store.notices.length, 1);
+});
+
+test('adding a project from settings shows the folder at once, and takes it back if refused', async () => {
+  const snap = { ...snapshot([]), projects: [{ id: 'p1', name: 'p', rootPath: 'C:/p', envCount: 0 }] };
+  /** The folder picker answers `path`; registering answers `status`. */
+  const answers = (path, status) => {
+    const calls = [];
+    globalThis.fetch = async (url, init) => {
+      calls.push(String(url));
+      await new Promise((r) => setTimeout(r, 5));
+      if (String(url).endsWith('/api/pick-folder')) return new Response(JSON.stringify({ path }), { status: 200 });
+      return new Response(JSON.stringify(status === 200 ? { projectId: 'p2' } : { error: '断られました' }), { status });
+    };
+    return calls;
+  };
+  reset(snap);
+  answers('C:/work/new-app', 200);
+  const added = addProjectFromFolder();
+  await new Promise((r) => setTimeout(r, 8));
+  const shown = store.state.projects.find((p) => p.rootPath === 'C:/work/new-app');
+  assert.ok(shown?.pending, 'listed before the server answers');
+  assert.equal(shown.name, 'new-app');
+  await added;
+  assert.equal(store.notices.length, 0);
+
+  reset(snap);
+  answers('C:/work/bad', 400);
+  await addProjectFromFolder();
+  assert.equal(store.state.projects.length, 1, 'taken back');
+  assert.equal(store.notices.length, 1);
+
+  reset(snap);
+  answers('c:/P', 200);
+  const again = addProjectFromFolder();
+  await new Promise((r) => setTimeout(r, 8));
+  assert.equal(store.state.projects.length, 1, 'a folder already listed is not doubled');
+  await again;
+
+  reset(snap);
+  const calls = answers('', 200);
+  await addProjectFromFolder();
+  assert.equal(calls.length, 1, 'cancelling the picker registers nothing');
 });
 
 test('put-away work is grouped by project, newest first, and found by every word typed', () => {
@@ -380,4 +506,198 @@ test('the update button shows at once and is taken back if the update cannot be 
   await startAppUpdate();
   assert.equal(store.updating, false, 'taken back');
   assert.match(store.notices.at(-1).text, /更新できませんでした/);
+});
+
+test('the inbox shows a step that waits on an earlier one only once that one is done', () => {
+  const step = (title, extra = {}) => ({ title, detail: null, command: null, after: null, done: false, ...extra });
+  const steps = [
+    step('PRをマージする'),
+    step('アプリを再起動する', { after: 'PRがマージされてから' }),
+    step('設定を見直す'),
+    step('画面を見る', { check: { update: 'reload', how: null, command: null } }),
+  ];
+  // The precondition comes first; what depends on it waits. Steps that can be done now still show.
+  assert.deepEqual(inboxStepIndexes(steps), [0, 2]);
+  steps[0].done = true;
+  assert.deepEqual(inboxStepIndexes(steps), [1, 2]);
+  // A precondition outside the list (nothing earlier is open) shows the step, with the precondition said first.
+  assert.deepEqual(inboxStepIndexes([step('デプロイする', { after: 'CIが緑になったら' })]), [0]);
+  // A chain opens one link at a time.
+  const chain = [step('A'), step('B', { after: 'A' }), step('C', { after: 'B' })];
+  assert.deepEqual(inboxStepIndexes(chain), [0]);
+  chain[0].done = true;
+  assert.deepEqual(inboxStepIndexes(chain), [1]);
+});
+
+// ---- the human's standing preferences (こだわり) ----
+import { WARN_AT, domainClipboard, entryClipboard, knowledgeModel, knowledgeNews, knowledgeUsage, tone, tuneModel } from '../public/js/logic/knowledge.js';
+import { addKnowledgeEntry, markKnowledgeSeen, removeKnowledgeDomain, removeKnowledgeEntry, sendKnowledgeTune, setKnowledgeDomain, setKnowledgeSettings, updateKnowledgeEntry } from '../public/js/logic/actions.js';
+
+const LIMITS = { sectionText: 5000, domainName: 40, domainDescription: 200, domains: 30, routeThreshold: 1500, maxRoutedDomains: 3 };
+const HEADING = '## ユーザーのこだわり（この作業に関係する領域のみ）';
+const kEntry = (id, domainId, text, o = {}) => ({ id, domainId, text, sessionId: null, scope: 'all', hits: 1, createdAt: NOW, updatedAt: NOW, seen: true, ...o });
+const kSnap = (entries = []) => ({
+  ...snapshot([]),
+  settings: { maxConcurrent: 3, minFreeMemoryMB: 0, knowledge: { capture: true, inject: true } },
+  projects: [],
+  knowledge: {
+    domains: [{ id: 'ui', name: 'UI・操作感', description: '', always: false, order: 0 }, { id: 'writing', name: '文章・言葉づかい', description: '', always: false, order: 1 }, { id: 'other', name: 'その他', description: '', always: false, order: 2 }],
+    entries,
+    unseen: entries.filter((e) => !e.seen).length,
+    limits: LIMITS,
+    heading: HEADING,
+  },
+});
+
+test('usage: each limit is measured the way the server measures it, and warns near it', () => {
+  assert.equal(tone(0, 500), 'ok');
+  assert.equal(tone(Math.ceil(500 * WARN_AT) - 1, 500), 'ok');
+  assert.equal(tone(Math.ceil(500 * WARN_AT), 500), 'warn');
+  assert.equal(tone(500, 500), 'full');
+  const u = knowledgeUsage(kSnap([kEntry('a', 'ui', 'あ'.repeat(4200)), kEntry('b', 'ui', '短い（理由）')]));
+  assert.deepEqual(u.perEntry.get('a'), { used: 4200, max: 5000, tone: 'warn' });
+  assert.deepEqual(u.perEntry.get('b'), { used: 6, max: 5000, tone: 'ok' });
+  const ui = u.perDomain.get('ui');
+  assert.equal(ui.chars, 4208);
+  assert.equal(ui.maxChars, 5000);
+  const sent = [HEADING, '### UI・操作感', `${'あ'.repeat(4200)}\n\n短い（理由）`].join('\n');
+  assert.equal(u.total.chars, sent.length);
+  assert.equal(u.perDomain.get('writing').chars, 0);
+  assert.equal(u.total.routed, true);
+  assert.equal(knowledgeUsage(kSnap([])).total.chars, 0, 'nothing recorded: nothing sent');
+  const big = knowledgeUsage(kSnap([kEntry('long', 'writing', 'い'.repeat(5001))]));
+  assert.equal(big.total.routed, true);
+  assert.equal(big.perDomain.get('writing').attached, 5000);
+  assert.equal(big.total.chars, [HEADING, '### 文章・言葉づかい', 'い'.repeat(5000)].join('\n').length);
+});
+
+test('news: what was recorded by itself, newest first, and the areas in order with the most repeated first', () => {
+  const st = kSnap([kEntry('old', 'ui', '古い', { seen: false, createdAt: NOW - 10 }), kEntry('new', 'ui', '新しい', { seen: false, createdAt: NOW, hits: 3 }), kEntry('seen', 'writing', '見た')]);
+  const n = knowledgeNews(st);
+  assert.equal(n.count, 2);
+  assert.deepEqual(n.latest.map((e) => e.id), ['new', 'old']);
+  const m = knowledgeModel(st);
+  assert.deepEqual(m.map((x) => x.domain.id), ['ui', 'writing', 'other']);
+  assert.deepEqual(m[0].entries.map((e) => e.id), ['old', 'new']);
+});
+
+test('preferences change on screen at once and come back if the server refuses', async () => {
+  const snap = kSnap([kEntry('a', 'ui', '即時のフィードバック')]);
+  reset(snap);
+  let calls = server(200);
+  const added = addKnowledgeEntry('writing', '  結論から書く  ');
+  assert.ok(store.state.knowledge.entries.some((e) => e.domainId === 'writing' && e.text === '結論から書く'));
+  await added;
+  assert.deepEqual(calls[0].body, { domainId: 'writing', text: '  結論から書く  ', scope: 'all' });
+  assert.ok(calls[0].url.endsWith('/api/knowledge/entries'));
+
+  reset(snap);
+  calls = server(200);
+  const moved = updateKnowledgeEntry('a', { text: '操作には即時の反応', domainId: 'other' });
+  assert.deepEqual([store.state.knowledge.entries[0].text, store.state.knowledge.entries[0].domainId], ['操作には即時の反応', 'other']);
+  await moved;
+  assert.ok(calls[0].url.endsWith('/api/knowledge/entries/a'));
+
+  reset(snap);
+  calls = server(500);
+  const refused = removeKnowledgeEntry('a');
+  assert.equal(store.state.knowledge.entries.length, 0);
+  await refused;
+  assert.equal(store.state.knowledge.entries.length, 1, 'taken back');
+  assert.equal(store.notices.length, 1);
+
+  reset(snap);
+  calls = server(200);
+  const gone = removeKnowledgeDomain('ui');
+  assert.ok(!store.state.knowledge.domains.some((d) => d.id === 'ui'));
+  assert.equal(store.state.knowledge.entries[0].domainId, 'other', 'what was in it goes to その他');
+  await gone;
+
+  reset(snap);
+  calls = server(200);
+  const made = setKnowledgeDomain(null, { name: '  設計  ', description: '構成' });
+  assert.equal(store.state.knowledge.domains.at(-1).name, '設計');
+  await made;
+  assert.deepEqual(calls[0].body, { name: '  設計  ', description: '構成' });
+});
+
+test('the two switches show at once; looking at the news clears it', async () => {
+  reset(kSnap([kEntry('a', 'ui', 'x', { seen: false })]));
+  let calls = server(200);
+  const off = setKnowledgeSettings({ capture: false });
+  assert.deepEqual(store.state.settings.knowledge, { capture: false, inject: true });
+  await off;
+  assert.deepEqual(calls[0].body, { knowledge: { capture: false, inject: true } });
+  calls = server(200);
+  const seen = markKnowledgeSeen();
+  assert.equal(knowledgeNews(store.state).count, 0);
+  await seen;
+  assert.ok(calls[0].url.endsWith('/api/knowledge/seen'));
+  assert.equal(markKnowledgeSeen(), null, 'nothing new: nothing is asked');
+  assert.deepEqual(parseRoute('#/knowledge'), { view: 'knowledge' });
+});
+
+test('preference AI settings show immediately, survive toggles, and roll back on a refused save', async () => {
+  reset(kSnap([]));
+  const captureAi = { provider: 'codex', model: 'gpt-test', effort: 'high' };
+  const tuneAi = { provider: 'claude', model: 'opus', effort: 'medium' };
+  let calls = server(200);
+  const saving = setKnowledgeSettings({ captureAi });
+  assert.deepEqual(store.state.settings.knowledge.captureAi, captureAi);
+  await saving;
+  assert.deepEqual(calls[0].body.knowledge.captureAi, captureAi);
+  await setKnowledgeSettings({ tuneAi });
+  await setKnowledgeSettings({ capture: false });
+  assert.deepEqual(store.state.settings.knowledge, { capture: false, inject: true, captureAi, tuneAi });
+  calls = server(500);
+  const refused = setKnowledgeSettings({ tuneAi: captureAi });
+  assert.deepEqual(store.state.settings.knowledge.tuneAi, captureAi);
+  await refused;
+  assert.deepEqual(store.state.settings.knowledge.tuneAi, tuneAi);
+  assert.deepEqual(store.state.settings.knowledge.captureAi, captureAi);
+});
+
+test('copying: one preference is its text; one area is its heading and its lines as they are sent', () => {
+  const st = kSnap([kEntry('a', 'ui', '一度'), kEntry('b', 'ui', '何度も\n二行目', { hits: 3 }), kEntry('c', 'writing', '別の領域')]);
+  assert.equal(entryClipboard(st.knowledge.entries[1]), '何度も\n二行目');
+  assert.equal(domainClipboard(st, 'ui'), ['### UI・操作感', '一度\n\n何度も\n二行目'].join('\n'));
+  assert.equal(domainClipboard(st, 'nope'), '');
+});
+
+test('section appends and moves merge immediately, keep full long text, and roll back when refused', async () => {
+  const original = kSnap([kEntry('a', 'ui', '最初の決まり'), kEntry('b', 'other', 'その他の決まり')]);
+  reset(original);
+  server(200);
+  await addKnowledgeEntry('ui', '追記する決まり');
+  assert.equal(store.state.knowledge.entries.filter((e) => e.domainId === 'ui').length, 1);
+  assert.equal(store.state.knowledge.entries.find((e) => e.domainId === 'ui').text, '最初の決まり\n\n追記する決まり');
+  reset(original);
+  server(500);
+  const moved = updateKnowledgeEntry('a', { domainId: 'other', text: '長'.repeat(5100) });
+  assert.equal(store.state.knowledge.entries.length, 1);
+  assert.ok(store.state.knowledge.entries[0].text.includes('長'.repeat(5100)));
+  await moved;
+  assert.deepEqual(store.state.knowledge.entries, original.knowledge.entries);
+});
+
+test('the こだわり chat: the message shows at once with the reading under way, and comes back out if refused', async () => {
+  const snap = kSnap([]);
+  reset(snap);
+  assert.deepEqual(tuneModel(store.state), { messages: [], busy: false, max: 12000 });
+  let calls = server(200);
+  const sent = sendKnowledgeTune('保存ボタンは右に');
+  const t = tuneModel(store.state);
+  assert.equal(t.busy, true);
+  assert.deepEqual(t.messages.map((m) => [m.role, m.text]), [['human', '保存ボタンは右に']]);
+  await sent;
+  assert.ok(calls[0].url.endsWith('/api/knowledge/tune'));
+  assert.deepEqual(calls[0].body, { text: '保存ボタンは右に' });
+
+  reset(snap);
+  calls = server(400);
+  const refused = sendKnowledgeTune('x');
+  await refused;
+  assert.equal(tuneModel(store.state).messages.length, 0, 'taken back');
+  assert.equal(store.notices.length, 1);
+  assert.deepEqual(parseRoute('#/knowledge/tune'), { view: 'knowledge-tune' });
 });

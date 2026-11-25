@@ -1,4 +1,5 @@
-// Side chats: small windows at the bottom right, over whatever screen is open (Ctrl+A opens one; several may be open).
+// Side chats: small windows at the bottom right, over whatever screen is open (Ctrl+M opens one; several may be open).
+// A window can be dragged by its title bar to anywhere on the screen; a double click on the title bar puts it back in the dock.
 // Each has its conversation, a box to write in, attachments and the AI chip — and nothing about a workspace.
 import { chatBusy, chatOf, closeChat, confirmChatSent, interruptChat, loadChatTranscript, sendChat, setChatChoice, setChatMinimized, syncChatWindows } from '../logic/chats.js';
 import { store } from '../logic/store.js';
@@ -14,6 +15,9 @@ import { PROVIDER } from './vocabulary.js';
 const WINDOW_W = 392;
 /** How many chat windows fit open next to each other on this screen. */
 export const chatRoom = () => Math.max(1, Math.floor((innerWidth - 24) / WINDOW_W));
+
+// A window moved off the dock stays inside the screen when the screen gets smaller.
+addEventListener('resize', () => { for (const n of $('chats')?.children ?? []) n._place?.(); });
 
 /** Draw the windows (called with every redraw of the page). */
 export function drawChats() {
@@ -43,8 +47,9 @@ function chatWindow(w) {
   const minBtn = el('button', { type: 'button', class: 'quiet ib', onclick: (e) => { e.stopPropagation(); setChatMinimized(w, !w.minimized); } });
   const closeBtn = el('button', { type: 'button', class: 'quiet ib', title: '閉じる（このチャットは残りません）', 'aria-label': 'チャットを閉じる', onclick: (e) => { e.stopPropagation(); closeChat(w); } }, icon('x', 's'));
   const head = el('header', { class: 'sc-head' }, agent, title, lamp, el('span', { class: 'grow' }), minBtn, closeBtn);
-  // A folded window opens again from anywhere on its title bar.
-  head.addEventListener('click', () => { if (w.minimized) setChatMinimized(w, false); });
+  // A folded window opens again from anywhere on its title bar (unless the press was the end of a drag).
+  let dragged = false;
+  head.addEventListener('click', () => { if (dragged) { dragged = false; return; } if (w.minimized) setChatMinimized(w, false); });
 
   const empty = el('div', { class: 'sc-empty' }, icon('message', 'l dim'), el('div', {}, '雑談やちょっとした質問にどうぞ'), el('div', { class: 'note' }, 'ファイルの添付もできます。作業のフォルダには触れません。'));
   const log = el('div', { class: 'sc-log' });
@@ -53,7 +58,7 @@ function chatWindow(w) {
   const errLine = el('div', { class: 'err', role: 'alert' });
   const body = el('div', { class: 'sc-body' }, empty, log, outbox, typing, errLine);
 
-  const text = el('textarea', { rows: '1', 'aria-label': 'メッセージ', placeholder: 'メッセージ（Enterで送信・Shift+Enterで改行）' });
+  const text = el('textarea', { rows: '1', 'aria-label': 'メッセージ', placeholder: 'メッセージ（Ctrl+Enterで送信・Enterで改行）' });
   text.value = w.draft ?? '';
   text.addEventListener('input', () => { w.draft = text.value; });
   const sendBtn = el('button', { type: 'button', class: 'primary ib' });
@@ -119,17 +124,63 @@ function chatWindow(w) {
     }
   };
   sendBtn.addEventListener('click', () => (chatBusy(w) ? interruptChat(w) : submit()));
+  // Enter is a new line; Ctrl+Enter sends, as in every other box.
   text.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.isComposing || e.shiftKey || e.altKey) return;
+    if (e.key !== 'Enter' || e.isComposing || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
     e.preventDefault();
     submit();
   });
+
+  // Moving the window: it follows the pointer from the moment it is pressed on the title bar and dragged a little.
+  // Where it was put is kept on the window (w.pos), so redraws and folding leave it there.
+  const place = () => {
+    node.classList.toggle('floating', !!w.pos);
+    if (!w.pos) { node.style.left = node.style.top = ''; return; }
+    const x = Math.min(Math.max(0, w.pos.x), Math.max(0, innerWidth - node.offsetWidth));
+    const y = Math.min(Math.max(0, w.pos.y), Math.max(0, innerHeight - node.offsetHeight));
+    node.style.left = `${x}px`;
+    node.style.top = `${y}px`;
+  };
+  head.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    const r = node.getBoundingClientRect();
+    const dx = e.clientX - r.left;
+    const dy = e.clientY - r.top;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let moving = false;
+    dragged = false;
+    const move = (m) => {
+      if (!moving && Math.hypot(m.clientX - sx, m.clientY - sy) < 4) return;
+      if (!moving) { moving = true; node.classList.add('dragging'); }
+      w.pos = { x: m.clientX - dx, y: m.clientY - dy };
+      place();
+    };
+    const up = () => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      removeEventListener('pointercancel', up);
+      node.classList.remove('dragging');
+      dragged = moving;
+    };
+    // Followed on the whole page: a quick drag leaves the title bar before the first move arrives.
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+    addEventListener('pointercancel', up);
+  });
+  head.addEventListener('dblclick', (e) => {
+    if (e.target.closest('button') || !w.pos) return;
+    w.pos = null;
+    place();
+  });
+  node._place = place;
 
   let sig = '';
   node._update = () => {
     const c = chatOf(w);
     const busy = chatBusy(w);
     node.classList.toggle('min', w.minimized);
+    place();
     const firstWords = w.outbox[0]?.text.trim().split('\n')[0].slice(0, 40);
     title.textContent = c?.title ?? firstWords ?? '新しいチャット';
     const s = [w.minimized, busy, w.stopping, c?.state, c?.error, w.error, w.choice.provider].join('|');
@@ -142,7 +193,7 @@ function chatWindow(w) {
       minBtn.title = w.minimized ? '開く' : 'たたむ';
       minBtn.setAttribute('aria-label', minBtn.title);
       put(sendBtn, icon(busy ? 'stop' : 'send'));
-      sendBtn.title = busy ? '返答を止める' : '送る (Enter)';
+      sendBtn.title = busy ? '返答を止める' : '送る (Ctrl+Enter)';
       sendBtn.setAttribute('aria-label', sendBtn.title);
       sendBtn.disabled = !!w.stopping;
       typing.hidden = !busy;

@@ -14,12 +14,13 @@ import type {
   TaskValidation,
   HumanStepInput,
 } from './types.ts';
+import type { UsageLimit } from './provider.ts';
 
 export type CoreEvent =
   | { type: 'core.started'; generation: number }
   | { type: 'project.added'; projectId: string; name: string; rootPath: string }
   | { type: 'project.renamed'; projectId: string; name: string }
-  | { type: 'project.options_changed'; projectId: string; useWorktree?: boolean; preamble?: string }
+  | { type: 'project.options_changed'; projectId: string; useWorktree?: boolean; preamble?: string; approvalMode?: ApprovalMode; captureKnowledge?: boolean; description?: string }
   | { type: 'task.created'; taskId: string; projectId: string; title: string; acceptanceCriteria: string | null; checkCommand?: string | null; autoFix?: boolean }
   | { type: 'task.renamed'; taskId: string; title: string }
   | { type: 'task.validation_started'; taskId: string }
@@ -38,6 +39,22 @@ export type CoreEvent =
    */
   | { type: 'task.human_step_settled'; taskId: string; index: number; command: string; runId: string; done: boolean; note: string | null; steps: HumanStepInput[] }
   | { type: 'settings.changed'; settings: Partial<Settings> }
+  | { type: 'usage.limits_updated'; provider: ProviderId; limits: UsageLimit[] }
+  /** An area of preferences was made, or changed (only the fields given). */
+  | { type: 'knowledge.domain_set'; domainId: string; name?: string; description?: string; always?: boolean; order?: number }
+  /** An area was removed; its preferences went to `moveTo` (null: they were removed with it). */
+  | { type: 'knowledge.domain_removed'; domainId: string; moveTo: string | null }
+  /** `why` / `quote`: only in events written before the reason became part of the text (folded into it on reading). */
+  | { type: 'knowledge.entry_added'; entryId: string; domainId: string; text: string; why?: string | null; quote?: string | null; sessionId: string | null; scope: string; seen: boolean }
+  /** `why`: only in old events; ignored. */
+  | { type: 'knowledge.entry_updated'; entryId: string; text?: string; why?: string | null; domainId?: string; scope?: string }
+  | { type: 'knowledge.entry_removed'; entryId: string }
+  /** Atomically replace section prompts, including consolidation of older individual entries. */
+  | { type: 'knowledge.prompts_set'; entries: import('./types.ts').KnowledgeEntry[]; remove: string[] }
+  /** The same preference came up again. */
+  | { type: 'knowledge.entry_reinforced'; entryId: string; quote?: string | null; sessionId: string | null }
+  /** The human looked at the preferences recorded by themselves. */
+  | { type: 'knowledge.seen' }
   | { type: 'session.created'; sessionId: string; projectId: string; taskId: string; provider: ProviderId; cwd: string; model?: string | null; effort?: string | null; approvalMode?: ApprovalMode }
   | {
       type: 'session.updated';
@@ -45,6 +62,7 @@ export type CoreEvent =
       patch: Partial<{
         providerSessionId: string;
         model: string;
+        effort: string | null;
         lifecycle: SessionLifecycle;
         process: ProcessState;
         resumability: Resumability;
@@ -53,6 +71,8 @@ export type CoreEvent =
         error: string | null;
         background: string[] | null;
         awaitingBackground: boolean;
+        usageResume: { model: string | null; resetsAt: number | null } | null;
+        usageResumeCancelled: boolean;
       }>;
     }
   | {

@@ -34,6 +34,7 @@ function backToWork(state, s) {
   s.unread = false;
   s.archived = false;
   s.awaitingBackground = false;
+  s.usageResume = null;
   if (s.task) Object.assign(s.task, { humanSteps: null, validation: null, acceptedAt: null });
   for (const i of state.items) if (i.sessionId === s.id && i.passive && i.status === 'pending') i.status = 'expired';
 }
@@ -48,14 +49,15 @@ export const actEffect = (sessionId, action, body = {}) => (state) => {
   if (SLOW.has(action)) s.busyWith = action;
   switch (action) {
     case 'interrupt':
+      if (s.usageResume) Object.assign(s, { usageResume: null, busyWith: null });
       // Work that was still waiting for a slot is simply taken out of the queue.
       if (s.lifecycle === 'queued') Object.assign(s, { lifecycle: 'interrupted', lifecycleSince: Date.now(), queuePosition: null, busyWith: null });
       break;
     case 'archive':
-      Object.assign(s, { archived: true, unread: false });
+      Object.assign(s, { archived: true, unread: false, usageResume: null });
       break;
     case 'accept':
-      Object.assign(s, { archived: true, unread: false, completion: 'accepted' });
+      Object.assign(s, { archived: true, unread: false, completion: 'accepted', usageResume: null });
       break;
     case 'unarchive':
       s.archived = false;
@@ -88,9 +90,10 @@ export const manyEffect = (sessionIds, action) => (state) => {
 };
 
 /** A message to a session: held if the agent is busy, otherwise the agent starts on it. */
-export const messageEffect = (sessionId, text) => (state) => {
+export const messageEffect = (sessionId, text, effort) => (state) => {
   const s = session(state, sessionId);
   if (!s) return;
+  if (effort !== undefined) s.effort = effort;
   if (BUSY.includes(s.lifecycle) && !(s.lifecycle === 'running' && s.awaitingBackground && s.live)) s.deferredMessage = s.deferredMessage ? `${s.deferredMessage}\n\n${text}` : text;
   else backToWork(state, s);
 };
@@ -112,13 +115,13 @@ export const answerEffect = (itemId, answer) => (state) => {
   }
 };
 
-/** A step of the human's own list ticked. The last one finishes the work, which is then put away. */
+/** A step of the human's own list ticked. The last one finishes the work; the chat itself stays (it is not archived). */
 export const stepEffect = (sessionId, index, done) => (state) => {
   const s = session(state, sessionId);
   const steps = s?.task?.humanSteps;
   if (!steps?.[index]) return;
   steps[index].done = done;
-  if (steps.every((x) => x.done)) Object.assign(s, { archived: true, unread: false, completion: 'accepted' });
+  if (steps.every((x) => x.done)) Object.assign(s, { unread: false, completion: 'accepted' });
 };
 
 /**
@@ -138,6 +141,18 @@ export const settingsEffect = (patch) => (state) => {
   if (patch.maxConcurrent !== undefined) next.maxConcurrent = Math.min(20, Math.max(1, Math.floor(Number(patch.maxConcurrent)) || 1));
   if (patch.minFreeMemoryMB !== undefined) next.minFreeMemoryMB = Math.min(65536, Math.max(0, Math.floor(Number(patch.minFreeMemoryMB)) || 0));
   if (patch.sideChat) next.sideChat = { provider: patch.sideChat.provider === 'codex' ? 'codex' : 'claude', model: String(patch.sideChat.model ?? ''), effort: String(patch.sideChat.effort ?? '') };
+  if (patch.voice) {
+    const now = next.voice ?? { plannerAi: { provider: 'claude', model: 'haiku', effort: '' }, confirm: true };
+    const ai = patch.voice.plannerAi;
+    next.voice = {
+      ...now,
+      plannerAi: ai ? { provider: ai.provider === 'codex' ? 'codex' : 'claude', model: String(ai.model ?? ''), effort: String(ai.effort ?? '') } : now.plannerAi,
+      confirm: patch.voice.confirm === undefined ? now.confirm : patch.voice.confirm !== false,
+    };
+    if (patch.voice.recognizer !== undefined) next.voice.recognizer = String(patch.voice.recognizer ?? '');
+    // Same folding as the server: one word per line, blank lines dropped.
+    if (patch.voice.words !== undefined) next.voice.words = String(patch.voice.words ?? '').split(/\r?\n/).map((w) => w.trim()).filter(Boolean).join('\n');
+  }
   state.settings = next;
 };
 
@@ -151,13 +166,31 @@ export const projectRenameEffect = (projectId, name) => (state) => {
   for (const i of state.items) if (i.projectId === projectId) i.projectName = clean;
 };
 
-/** A project's own options (whether new work gets a worktree, its default message). */
+/** A project's own options (whether new work gets a worktree, how it handles approvals, its default message, what it is). */
 export const projectEffect = (projectId, options) => (state) => {
   const p = state.projects.find((x) => x.id === projectId);
   if (p && options.useWorktree !== undefined) p.useWorktree = options.useWorktree !== false;
   if (p && options.preamble !== undefined) p.preamble = String(options.preamble ?? '').slice(0, 20000);
+  // Same trimming and limit as the server (PROJECT_DESCRIPTION_MAX), so what shows at the click is what is kept.
+  if (p && options.description !== undefined) p.description = String(options.description ?? '').trim().slice(0, 2000);
+  if (p && options.captureKnowledge !== undefined) p.captureKnowledge = options.captureKnowledge !== false;
+  if (p && ['ask', 'edits', 'auto'].includes(options.approvalMode)) p.approvalMode = options.approvalMode;
 };
 
 export const loginEffect = (provider) => (state) => {
   if (state.auth?.[provider]) state.auth[provider].loginInProgress = true;
+};
+
+/** A placeholder id for a folder being added as a project, until the server's picture lists the real one. */
+export const pendingProjectId = (path) => `pending:${path}`;
+
+/**
+ * A folder is being added as a project: show it in the list at once (as pending). A folder already listed is left
+ * alone — the server gives back that same project.
+ */
+export const projectAddEffect = (path) => (state) => {
+  const key = String(path).toLowerCase();
+  if (state.projects.some((p) => p.rootPath.toLowerCase() === key)) return;
+  const name = String(path).replace(/[\/]+$/, '').split(/[\/]/).pop() || String(path);
+  state.projects.push({ id: pendingProjectId(path), name, rootPath: path, envCount: 0, pending: true });
 };

@@ -3,12 +3,13 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
-import type { ApprovalMode, AttentionAnswer, ProviderId, Settings } from '#core';
+import { APPROVAL_MODES, type ApprovalMode, type AttentionAnswer, type ProviderId, type Settings } from '#core';
 import type { WorktreeInfo } from '../infrastructure/worktree.ts';
 import { runCommand } from '../infrastructure/shell.ts';
 import type { Assistant, CommandReading } from './assistant.ts';
 import { HttpError } from './errors.ts';
 import type { Journal } from './journal.ts';
+import type { Knowledge } from './knowledge.ts';
 import { message, mustProject, mustProvider, mustSession } from './runtime.ts';
 import type { Runtime } from './runtime.ts';
 import type { Scheduler } from './scheduler.ts';
@@ -41,13 +42,17 @@ export interface SessionDeps {
   journal: Journal;
   workspaces: Workspaces;
   assistant: Assistant;
+  /** The human's standing preferences: read from what they say, sent with new work. */
+  knowledge: Knowledge;
   /** Folder agents may read without asking (files the human attached). */
   attachmentsDir: string;
 }
 
 export class Sessions {
   /** Follow-up instructions written while the agent was busy; sent by us when its turn ends. */
-  private readonly deferred = new Map<string, string>();
+  private readonly deferred = new Map<string, { text: string; effort: string | null; previousEffort: string | null }>();
+  /** Automatic resume messages waiting for a slot; turning the feature off cancels these as well as future timers. */
+  private readonly automaticResumes = new Set<string>();
   private readonly rt: Runtime;
   private readonly d: SessionDeps;
 
@@ -68,17 +73,21 @@ export class Sessions {
     return this.rt.core.renameProject(projectId, name);
   }
 
-  setProjectOptions(projectId: string, options: { useWorktree?: unknown; preamble?: unknown }): void {
+  setProjectOptions(projectId: string, options: { useWorktree?: unknown; preamble?: unknown; approvalMode?: unknown; captureKnowledge?: unknown; description?: unknown }): void {
     mustProject(this.rt, projectId);
+    if (options.approvalMode !== undefined && !APPROVAL_MODES.includes(options.approvalMode as ApprovalMode)) throw new HttpError(400, '承認の任せ方が不正です');
     this.rt.core.setProjectOptions(projectId, {
+      approvalMode: options.approvalMode as ApprovalMode | undefined,
       useWorktree: options.useWorktree === undefined ? undefined : options.useWorktree !== false,
+      captureKnowledge: options.captureKnowledge === undefined ? undefined : options.captureKnowledge !== false,
       preamble: options.preamble === undefined ? undefined : String(options.preamble ?? ''),
+      description: options.description === undefined ? undefined : String(options.description ?? ''),
     });
   }
 
   async start(input: StartSessionInput): Promise<string> {
     const { rt } = this;
-    const { secrets, journal, workspaces, assistant, scheduler, attachmentsDir } = this.d;
+    const { secrets, journal, workspaces, assistant, knowledge, scheduler, attachmentsDir } = this.d;
     if (!input.prompt?.trim()) throw new HttpError(400, '指示文が空です');
     mustProject(rt, input.projectId);
     mustProvider(input.provider);
@@ -108,7 +117,8 @@ export class Sessions {
       autoFix: !!input.autoFix,
       model: input.model?.trim() || null,
       effort: input.effort?.trim() || null,
-      approvalMode: input.approvalMode === 'auto' || input.approvalMode === 'edits' ? input.approvalMode : 'ask',
+      // The new-work screen may choose for this one piece of work; otherwise the project's setting (default: the agent's review).
+      approvalMode: APPROVAL_MODES.includes(input.approvalMode as ApprovalMode) ? input.approvalMode : project.approvalMode ?? 'auto',
     });
     if (!given) {
       // Name it in the background; the provisional name (start of the instruction) stays if this fails.
@@ -125,12 +135,14 @@ export class Sessions {
     } else if (wtError) {
       journal.write(s.id, 'system', `作業専用のフォルダ（git worktree）を作れなかったため、プロジェクトのフォルダで直接作業します: ${secrets.redact(wtError)}`);
     }
-    // The human's standing messages go first: the app-wide one (設定 → デフォルトメッセージ), then this project's own.
+    // The human's standing messages go first: the app-wide one (設定 → デフォルトメッセージ), then this project's own,
+    // then the preferences (こだわり) that bear on this work. Those are chosen while the folder is made and the work
+    // waits for its turn, so choosing them holds nothing up.
     const appWide = rt.core.state.settings.preamble?.trim();
     const own = project.preamble?.trim();
-    const preamble = [appWide, own].filter(Boolean).join('\n\n');
-    const req = { sessionId: s.id, cwd: s.cwd, prompt: preamble ? `${preamble}\n\n${input.prompt}` : input.prompt, shownPrompt: preamble ? input.prompt : undefined, readDirs: [attachmentsDir], model: s.requestedModel, effort: s.effort, approvalMode: s.approvalMode, planMode: input.planMode, codex: input.codex, claude: input.claude };
-    if (preamble) journal.write(s.id, 'system', `${appWide && own ? '設定とプロジェクトの' : own ? 'プロジェクトの' : '設定の'}「デフォルトメッセージ」を先頭に付けて送りました。`);
+    const preferences = knowledge.preferencesFor(input.projectId, input.prompt);
+    knowledge.heard(s.id, input.prompt);
+    const base = { sessionId: s.id, cwd: s.cwd, readDirs: [attachmentsDir], model: s.requestedModel, effort: s.effort, approvalMode: s.approvalMode, planMode: input.planMode, codex: input.codex, claude: input.claude };
     const made = wt;
     const ready = made ? workspaces.materialize(made, root) : Promise.resolve();
     ready.catch(() => {});
@@ -142,7 +154,13 @@ export class Sessions {
         rt.core.sessionUpdate(s.id, { lifecycle: 'error', error: `作業用フォルダ（git worktree）を作れませんでした: ${secrets.redact(message(e))}` });
         return;
       }
-      await rt.adapters[s.provider].startSession({ ...req, env: secrets.envFor(s.projectId) });
+      const k = await preferences;
+      const preamble = [appWide, own, k.text].filter(Boolean).join('\n\n');
+      const said: string[] = [];
+      if (appWide || own) said.push(`${appWide && own ? '設定とプロジェクトの' : own ? 'プロジェクトの' : '設定の'}「デフォルトメッセージ」`);
+      if (k.domains.length) said.push(`こだわり（${k.domains.join('、')}）`);
+      if (said.length) journal.write(s.id, 'system', `${said.join('と')}を先頭に付けて送りました。${k.dropped ? `${k.dropped} セクションは、添付上限の5,000字まで送りました（保存した全文は残っています）。` : ''}`);
+      await rt.adapters[s.provider].startSession({ ...base, prompt: preamble ? `${preamble}\n\n${input.prompt}` : input.prompt, shownPrompt: preamble ? input.prompt : undefined, env: secrets.envFor(s.projectId) });
     });
     return s.id;
   }
@@ -152,20 +170,20 @@ export class Sessions {
   }
 
   deferredOf(sessionId: string): string | null {
-    return this.deferred.get(sessionId) ?? null;
+    return this.deferred.get(sessionId)?.text ?? null;
   }
 
   /** Send any follow-up that was waiting for its session's turn to end. */
   flushDeferred(): void {
-    for (const [sessionId, text] of this.deferred) {
+    for (const [sessionId, held] of this.deferred) {
       const s = this.rt.core.state.sessions.get(sessionId);
       if (!s) {
         this.deferred.delete(sessionId);
         continue;
       }
-      if (s.lifecycle !== 'turn_finished') continue; // still busy, or stopped in a way the human should look at first
+      if (s.lifecycle !== 'turn_finished' || s.usageResume) continue; // wait through plan limits, too
       this.deferred.delete(sessionId);
-      void this.send(sessionId, text).catch((e) => this.rt.core.sessionUpdate(sessionId, { error: `後から送る指示を送れませんでした: ${message(e)}` }));
+      void this.send(sessionId, held.text, { heard: true, effort: held.effort ?? undefined, rollbackEffort: held.previousEffort }).catch((e) => this.rt.core.sessionUpdate(sessionId, { error: `後から送る指示を送れませんでした: ${message(e)}` }));
     }
   }
 
@@ -177,29 +195,72 @@ export class Sessions {
   /**
    * Follow-up message. Goes through the same queue as new work; a session whose process is gone is resumed by id.
    * If the agent is busy, the message is held and sent by us as soon as its turn ends, so the human need not come back.
+   * `heard`: it was already read for preferences (a held message, when it finally goes).
    */
-  async send(sessionId: string, text: string): Promise<{ resumed: boolean; queued: boolean; deferred?: boolean }> {
+  async send(sessionId: string, text: string, { heard = false, automatic = false, effort: requestedEffort, rollbackEffort }: { heard?: boolean; automatic?: boolean; effort?: unknown; rollbackEffort?: string | null } = {}): Promise<{ resumed: boolean; queued: boolean; deferred?: boolean }> {
     const { rt } = this;
     if (!text?.trim()) throw new HttpError(400, 'メッセージが空です');
     const s = mustSession(rt, sessionId);
     const adapter = rt.adapters[s.provider];
+    // A message may change effort, never provider or model. Validate before hearing the words or changing any state.
+    if (requestedEffort !== undefined) {
+      if (typeof requestedEffort !== 'string' || !requestedEffort.trim()) throw new HttpError(400, '思考量が不正です');
+      if (requestedEffort !== s.effort) {
+        let models;
+        try { models = await adapter.listModels(); }
+        catch { throw new HttpError(502, '選べる思考量を確認できませんでした'); }
+        const family = s.provider === 'claude' ? /^claude-(opus|sonnet|haiku)(?:-|$)/.exec(s.model ?? '')?.[1] : null;
+        const model = models.find((m) => m.id === s.model) ?? models.find((m) => m.id === s.requestedModel) ?? models.find((m) => m.id === family);
+        if (!model?.efforts?.includes(requestedEffort)) throw new HttpError(400, 'このモデルでは選べない思考量です');
+      }
+    }
+    const effort = typeof requestedEffort === 'string' ? requestedEffort : s.effort;
+    const previousEffort = rollbackEffort !== undefined ? rollbackEffort : s.effort;
+    const saveEffort = () => { if (s.effort !== effort) rt.core.sessionUpdate(sessionId, { effort }); };
+    const effortApplied = () => {
+      // A later held turn must roll back to what this turn actually used, even if it chose its effort before we ran.
+      const held = this.deferred.get(sessionId);
+      if (held) held.previousEffort = effort;
+    };
+    if (!automatic && this.automaticResumes.delete(sessionId) && this.d.scheduler.cancel(sessionId)) rt.core.sessionUpdate(sessionId, { lifecycle: 'interrupted' });
+    if (!automatic && s.usageResume) rt.core.sessionUpdate(sessionId, { usageResume: null });
+    if (!heard) this.d.knowledge.heard(sessionId, text);
     // An agent that is only waiting for its background work can be spoken to right away.
     const idleWaiting = s.lifecycle === 'running' && s.awaitingBackground && adapter.isLive(sessionId);
     if (!idleWaiting && (s.lifecycle === 'running' || s.lifecycle === 'waiting_for_user' || s.lifecycle === 'queued')) {
       const held = this.deferred.get(sessionId);
-      this.deferred.set(sessionId, held ? `${held}\n\n${text}` : text);
+      // Several held instructions are one turn; the last submitted effort applies to that combined turn.
+      this.deferred.set(sessionId, { text: held ? `${held.text}\n\n${text}` : text, effort, previousEffort: held ? held.previousEffort : previousEffort });
+      saveEffort();
       rt.notify();
       return { resumed: false, queued: false, deferred: true };
     }
     const live = adapter.isLive(sessionId);
     if (!live && !s.providerSessionId) throw new HttpError(409, 'このセッションは再開できません（プロバイダー側のIDが記録されていません）');
+    saveEffort();
     if (s.archived) rt.core.setArchived(sessionId, false);
+    if (automatic) this.automaticResumes.add(sessionId);
     this.d.scheduler.enqueue(sessionId, async () => {
-      if (adapter.isLive(sessionId)) return adapter.sendMessage(sessionId, text);
+      this.automaticResumes.delete(sessionId);
+      if (automatic && !rt.core.state.settings.autoResumeOnLimit) {
+        rt.core.sessionUpdate(sessionId, { lifecycle: 'interrupted', usageResume: null });
+        return;
+      }
+      if (automatic) rt.core.sessionUpdate(sessionId, { usageResume: null, usageResumeCancelled: false });
+      if (adapter.isLive(sessionId)) {
+        try { await adapter.sendMessage(sessionId, text, { effort }); effortApplied(); }
+        catch (e) {
+          if (s.effort === effort && !this.deferred.has(sessionId)) rt.core.sessionUpdate(sessionId, { effort: previousEffort });
+          throw e;
+        }
+        return;
+      }
       try {
         await this.d.workspaces.reopen(sessionId);
-        await adapter.startSession({ sessionId, cwd: s.cwd, prompt: text, readDirs: [this.d.attachmentsDir], resumeProviderSessionId: s.providerSessionId, model: s.requestedModel, effort: s.effort, approvalMode: s.approvalMode, env: this.d.secrets.envFor(s.projectId) });
+        await adapter.startSession({ sessionId, cwd: s.cwd, prompt: text, readDirs: [this.d.attachmentsDir], resumeProviderSessionId: s.providerSessionId, model: s.model ?? s.requestedModel, effort, approvalMode: s.approvalMode, env: this.d.secrets.envFor(s.projectId) });
+        effortApplied();
       } catch (e) {
+        if (s.effort === effort && !this.deferred.has(sessionId)) rt.core.sessionUpdate(sessionId, { effort: previousEffort });
         rt.core.sessionUpdate(sessionId, { lifecycle: 'error', resumability: 'unrecoverable', error: `再開に失敗: ${this.d.secrets.redact(message(e))}` });
       }
     });
@@ -208,6 +269,12 @@ export class Sessions {
 
   async interrupt(sessionId: string): Promise<void> {
     const s = mustSession(this.rt, sessionId);
+    this.automaticResumes.delete(sessionId);
+    if (s.usageResume) {
+      this.rt.core.sessionUpdate(sessionId, { usageResume: null });
+      // A limit has already ended the turn: cancelling its reservation needs no live process.
+      if (!['running', 'waiting_for_user', 'queued'].includes(s.lifecycle)) return;
+    } else this.rt.core.sessionUpdate(sessionId, { usageResume: null });
     if (this.d.scheduler.cancel(sessionId)) {
       // Still waiting for a slot: nothing was sent to any agent yet.
       this.rt.core.sessionUpdate(sessionId, { lifecycle: 'interrupted', lastTurnOutcome: 'interrupted' });
@@ -229,6 +296,7 @@ export class Sessions {
   async stop(sessionId: string): Promise<void> {
     const s = mustSession(this.rt, sessionId);
     if (s.lifecycle === 'running' || s.lifecycle === 'waiting_for_user') throw new HttpError(409, 'ターンの実行中は停止できません。先に中断してください');
+    if (s.usageResume) this.rt.core.sessionUpdate(sessionId, { usageResume: null });
     await this.rt.adapters[s.provider].stop(sessionId);
   }
 
@@ -257,8 +325,11 @@ export class Sessions {
     else void this.d.workspaces.reopen(sessionId).catch((e) => this.d.journal.write(sessionId, 'system', `作業用フォルダを作り直せませんでした: ${this.d.secrets.redact(message(e))}`));
   }
 
-  /** The human says "this is done". Accepted work is put away (reversibly); reopening brings it back. */
-  async setAccepted(sessionId: string, accepted: boolean): Promise<void> {
+  /**
+   * The human says "this is done". Accepted work is put away (reversibly); reopening brings it back.
+   * `putAway: false` is for work finished by its last step: the task is done, but the chat stays where it is.
+   */
+  async setAccepted(sessionId: string, accepted: boolean, { putAway = true }: { putAway?: boolean } = {}): Promise<void> {
     mustSession(this.rt, sessionId);
     const holds = () => ['running', 'waiting_for_user', 'queued'].includes(this.rt.core.state.sessions.get(sessionId)?.lifecycle ?? '');
     if (accepted && holds()) {
@@ -269,15 +340,15 @@ export class Sessions {
     }
     const r = this.rt.core.setAccepted(sessionId, accepted);
     if (!r.ok) throw new HttpError(409, r.error);
-    await this.setArchived(sessionId, accepted);
+    if (putAway || !accepted) await this.setArchived(sessionId, accepted);
   }
 
-  /** Tick (or untick) one of the human's steps. When the last one is done, the task is done. */
+  /** Tick (or untick) one of the human's steps. When the last one is done, the task is done (the chat is not archived). */
   async setStepDone(sessionId: string, index: number, done: boolean): Promise<{ completed: boolean }> {
     mustSession(this.rt, sessionId);
     const all = this.rt.core.setHumanStepDone(sessionId, index, done);
     if (!all) return { completed: false };
-    await this.setAccepted(sessionId, true);
+    await this.setAccepted(sessionId, true, { putAway: false });
     return { completed: true };
   }
 
@@ -330,15 +401,23 @@ export class Sessions {
       : { done: res.ok, note: `出力を自動で読めなかったため、終了コード（${res.exitCode ?? '不明'}）で${res.ok ? '済んだ' : 'まだ済んでいない'}と判断しました。`, steps: [] };
     const all = core.settleHumanStep(sessionId, runId, outcome);
     this.d.journal.write(sessionId, 'system', `実行結果の読み取り: ${outcome.done ? '済み' : 'まだ済んでいない'}${outcome.note ? `。${outcome.note}` : ''}${outcome.steps.length ? `\n追加された作業: ${outcome.steps.map((x) => x.title).join(' / ')}` : ''}`);
-    if (all) await this.setAccepted(sessionId, true).catch(() => {});
+    if (all) await this.setAccepted(sessionId, true, { putAway: false }).catch(() => {});
     return { done: outcome.done, note: outcome.note, completed: all };
   }
 
   answer(itemId: string, answer: AttentionAnswer) {
-    return this.rt.core.answer(itemId, answer);
+    const r = this.rt.core.answer(itemId, answer);
+    // A refusal with a reason says how the human wants things done: read it like any other instruction.
+    const item = this.rt.core.state.items.get(itemId);
+    if (r.ok && item && answer?.kind === 'decision' && answer.decision === 'decline' && answer.message?.trim()) this.d.knowledge.heard(item.sessionId, answer.message);
+    return r;
   }
 
   setSettings(patch: Partial<Settings>): Settings {
+    if (patch?.autoResumeOnLimit === false) for (const id of this.automaticResumes) {
+      if (this.d.scheduler.cancel(id)) this.rt.core.sessionUpdate(id, { lifecycle: 'interrupted' });
+      this.automaticResumes.delete(id);
+    }
     const s = this.rt.core.setSettings(patch ?? {});
     this.d.scheduler.pump();
     return s;

@@ -2,10 +2,14 @@
 // ONE app-server process hosts every Codex session (thread); each thread has its own cwd.
 // The official binary reads the user's existing ChatGPT login from its own home directory; this code never touches credentials.
 import { formFromElicitation } from '#core';
-import type { ApprovalDecision, AuthStatus, FileChange, ModelChoice, UsageLimit, ProviderAdapter, ProviderCapabilities, ProviderSink, StartSessionRequest } from '#core';
+import type { ApprovalDecision, AuthStatus, FileChange, MessageOptions, ModelChoice, UsageLimit, ProviderAdapter, ProviderCapabilities, ProviderSink, StartSessionRequest } from '#core';
 import { JsonRpcStdio } from './jsonrpc.ts';
 import type { RpcMessage } from './jsonrpc.ts';
 import { findCodex } from './find-codex.ts';
+import { PreferenceReader } from '../../provider-shared/src/preferences.ts';
+import { VoicePlanner } from '../../provider-shared/src/voice-plan.ts';
+import { CodexPreferenceHelper } from './preference-helper.ts';
+import { codexUsageLimits } from './usage-limits.ts';
 
 export interface CodexStartOptions {
   /** Omit to follow the user's ~/.codex/config.toml (the default: provider-native). */
@@ -28,9 +32,6 @@ interface CodexSession {
   recorded: { input: number; output: number; cached: number };
 }
 
-const windowLabel = (mins: number | null | undefined): string => (mins === 300 ? '5時間枠' : mins === 10080 ? '週間枠' : mins ? `${mins}分枠` : '利用枠');
-const toMs = (t: number | null | undefined): number | null => (t ? (t < 1e12 ? t * 1000 : t) : null);
-
 const KNOWN_DECISIONS: ApprovalDecision[] = ['accept', 'acceptForSession', 'decline', 'cancel'];
 
 export class CodexAdapter implements ProviderAdapter {
@@ -44,6 +45,28 @@ export class CodexAdapter implements ProviderAdapter {
   private shuttingDown = false;
   private readonly sink: ProviderSink;
   private readonly defaults: CodexStartOptions;
+  private readonly preferenceHelper = new CodexPreferenceHelper(() => this.ensureStarted());
+  private readonly preferences = new PreferenceReader(this.preferenceHelper.ask);
+
+  private readonly voicePlanner = new VoicePlanner(this.preferenceHelper.ask);
+
+  /** Voice input: what was said, split into pieces of work (same prompt and validation on either provider). */
+  planVoice(...args: Parameters<VoicePlanner['plan']>) {
+    return this.voicePlanner.plan(...args);
+  }
+
+  /** Voice input: a spoken reply, written the way the human would have typed it (English put back into English). */
+  tidyVoice(...args: Parameters<VoicePlanner['tidy']>) {
+    return this.voicePlanner.tidy(...args);
+  }
+
+  extractPreferences(...args: Parameters<PreferenceReader['extractPreferences']>) {
+    return this.preferences.extractPreferences(...args);
+  }
+
+  tunePreferences(...args: Parameters<PreferenceReader['tunePreferences']>) {
+    return this.preferences.tunePreferences(...args);
+  }
 
   constructor(sink: ProviderSink, defaults: CodexStartOptions = {}) {
     this.sink = sink;
@@ -85,6 +108,7 @@ export class CodexAdapter implements ProviderAdapter {
     if (this.rpc !== rpc && this.rpc !== null) return;
     this.rpc = null;
     this.starting = null;
+    this.preferenceHelper.cancelAll();
     // Every thread lived in that process. Pending requests died with it and are not re-issued by Codex.
     for (const sessionId of this.sessions.keys()) this.sink.sessionUpdate(sessionId, { process: this.shuttingDown ? 'stopped' : 'crashed' });
     this.sessions.clear();
@@ -126,11 +150,7 @@ export class CodexAdapter implements ProviderAdapter {
   async limits(): Promise<UsageLimit[]> {
     const rpc = await this.ensureStarted();
     const r = await rpc.request('account/rateLimits/read', {});
-    const out: UsageLimit[] = [];
-    for (const w of [r.rateLimits?.primary, r.rateLimits?.secondary]) {
-      if (w) out.push({ label: windowLabel(w.windowDurationMins), kind: w.windowDurationMins === 300 ? 'five_hour' : w.windowDurationMins === 10080 ? 'weekly' : 'other', usedPercent: Math.round(w.usedPercent), resetsAt: toMs(w.resetsAt), state: w.usedPercent >= 100 ? 'reached' : w.usedPercent >= 80 ? 'warning' : 'ok' });
-    }
-    return out;
+    return codexUsageLimits(r);
   }
 
   async startSession(req: StartSessionRequest & { codex?: CodexStartOptions }): Promise<void> {
@@ -162,9 +182,17 @@ export class CodexAdapter implements ProviderAdapter {
     await this.runTurn(req.sessionId, req.prompt, !!req.planMode, req.shownPrompt);
   }
 
-  async sendMessage(sessionId: string, text: string): Promise<void> {
-    if (!this.sessions.has(sessionId)) throw new Error('session is not live');
-    await this.runTurn(sessionId, text, false);
+  async sendMessage(sessionId: string, text: string, options: MessageOptions = {}): Promise<void> {
+    const s = this.sessions.get(sessionId);
+    if (!s) throw new Error('session is not live');
+    const before = s.effort;
+    if (options.effort !== undefined) s.effort = options.effort;
+    try {
+      await this.runTurn(sessionId, text, false);
+    } catch (e) {
+      s.effort = before;
+      throw e;
+    }
   }
 
   private async runTurn(sessionId: string, text: string, planMode: boolean, shown?: string): Promise<void> {
@@ -196,11 +224,20 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   private onNotification(msg: RpcMessage): void {
+    if (this.preferenceHelper.onNotification(msg)) return;
     const p = msg.params ?? {};
+    // Account notifications have no threadId; handle them before the per-thread dispatch.
+    if (msg.method === 'account/rateLimits/updated') {
+      this.sink.usageLimits('codex', codexUsageLimits(p));
+      return;
+    }
     const sessionId = this.threadToSession.get(p.threadId);
     if (!sessionId) return;
     const s = this.sessions.get(sessionId)!;
     switch (msg.method) {
+      case 'error':
+        if (!p.willRetry && p.error?.codexErrorInfo === 'usageLimitExceeded') this.sink.usageBlocked(sessionId);
+        break;
       case 'thread/status/changed':
         if (p.status?.type === 'active') {
           this.sink.sessionUpdate(sessionId, { lifecycle: p.status.activeFlags?.length ? 'waiting_for_user' : 'running' });
@@ -248,6 +285,7 @@ export class CodexAdapter implements ProviderAdapter {
         break;
       case 'turn/completed': {
         const status: string = p.turn?.status;
+        if (status === 'failed' && p.turn?.error?.codexErrorInfo === 'usageLimitExceeded') this.sink.usageBlocked(sessionId);
         if (s.tokens) {
           // Codex reports thread totals; record only what this turn added.
           const d = { input: s.tokens.input - s.recorded.input, output: s.tokens.output - s.recorded.output, cached: s.tokens.cached - s.recorded.cached };
@@ -267,6 +305,7 @@ export class CodexAdapter implements ProviderAdapter {
 
   private onServerRequest(msg: RpcMessage, respond: (r: unknown) => void, respondError: (code: number, message: string) => void): void {
     const p = msg.params ?? {};
+    if (this.preferenceHelper.owns(p.threadId)) return respondError(-32601, 'Preference reading does not use tools');
     const sessionId = this.threadToSession.get(p.threadId);
     if (!sessionId) return respondError(-32000, 'unknown thread');
     const requestId = String(msg.id);
@@ -368,6 +407,7 @@ export class CodexAdapter implements ProviderAdapter {
 
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
+    this.preferenceHelper.cancelAll();
     const rpc = this.rpc;
     if (!rpc) return;
     rpc.close();

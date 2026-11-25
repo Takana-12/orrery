@@ -6,6 +6,8 @@ export function parseRoute(hash) {
   if (h === 'new') return { view: 'inbox', write: true };
   if (h === 'archive') return { view: 'archive' };
   if (h === 'settings') return { view: 'settings' };
+  if (h === 'knowledge') return { view: 'knowledge' };
+  if (h === 'knowledge/tune') return { view: 'knowledge-tune' };
   if (h === 'usage') return { view: 'usage' };
   if (h.startsWith('env/')) return { view: 'env', id: h.slice(4) };
   return { view: 'inbox' };

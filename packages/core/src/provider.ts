@@ -23,6 +23,10 @@ export type ProviderSink = Pick<ControlCore, 'sessionUpdate' | 'attentionAcknowl
   transcript(sessionId: string, entry: { role: 'user' | 'assistant' | 'tool' | 'system'; text: string }): void;
   /** Tokens one finished turn consumed, as reported by the provider. */
   usage(sessionId: string, usage: TurnUsage): void;
+  /** A provider's account-wide or model-specific windows changed (may be a sparse update). */
+  usageLimits(provider: ProviderId, limits: UsageLimit[]): void;
+  /** This turn was rejected by a plan limit, before its terminal sessionUpdate. */
+  usageBlocked(sessionId: string): void;
   /** Called with the root pid of a provider process as soon as it exists, so the host can take ownership of it. */
   processSpawned(owner: { provider: ProviderId; sessionId: string | null }, pid: number): void;
 };
@@ -64,6 +68,11 @@ export interface ModelChoice {
   defaultEffort?: string | null;
 }
 
+/** Options for a follow-up turn; the conversation and its model stay the same. */
+export interface MessageOptions {
+  effort?: string | null;
+}
+
 export interface AuthStatus {
   loggedIn: boolean;
   /** Plan / account type as the provider names it (e.g. "max", "plus"). */
@@ -73,6 +82,8 @@ export interface AuthStatus {
 
 /** One rate-limit window as the provider reports it. */
 export interface UsageLimit {
+  /** Null / absent: shared by all models of this provider. Otherwise a model id or Claude family. */
+  model?: string | null;
   label: string;
   /** Which window this is, so a compact view can pick the 5-hour and the weekly one. */
   kind?: 'five_hour' | 'weekly' | 'other';
@@ -103,7 +114,7 @@ export interface ProviderAdapter {
   /** Start a new provider session, or resume one, and run the first turn with `prompt`. */
   startSession(req: StartSessionRequest): Promise<void>;
   /** Send a follow-up message to a live session. */
-  sendMessage(sessionId: string, text: string): Promise<void>;
+  sendMessage(sessionId: string, text: string, options?: MessageOptions): Promise<void>;
   interrupt(sessionId: string): Promise<void>;
   /** Release the session's process (if it has its own). The conversation stays resumable. */
   stop(sessionId: string): Promise<void>;

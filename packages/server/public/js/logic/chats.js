@@ -1,4 +1,4 @@
-// Side chats: small windows beside the work for a passing question or a chat (Ctrl+A). Each window talks to one AI,
+// Side chats: small windows beside the work for a passing question or a chat (Ctrl+M). Each window talks to one AI,
 // has no workspace, and is not work: it never appears in the lists or the inbox. Closing a window ends its chat.
 // As everywhere, what the human does shows at once: a message is in the window from the moment it is sent, and taken
 // back with the reason if it could not be.

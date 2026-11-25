@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import type { CoreEvent, EventStore, StoredEvent } from './events.ts';
 import { apply, fold } from './reducer.ts';
+import { APPROVAL_MODES, PROJECT_DESCRIPTION_MAX } from './types.ts';
 import type {
   AgentSession,
   ApprovalMode,
@@ -16,8 +17,13 @@ import type {
   Question,
   Settings,
   HumanStepInput,
+  KnowledgeSettings,
+  VoiceSettings,
+  KnowledgeEntry,
   TaskValidation,
 } from './types.ts';
+import { cleanLine, cleanText, mergeKnowledgeEntries, scopedKnowledgeText, KNOWLEDGE_LIMITS, OTHER_DOMAIN_ID } from './knowledge.ts';
+import type { UsageLimit } from './provider.ts';
 
 export interface OpenAttention {
   sessionId: string;
@@ -76,6 +82,7 @@ export class ControlCore {
 
   /** Call once per process start. Advances the generation, which retires everything the previous process left open. */
   start(): number {
+    this.consolidateKnowledge();
     const generation = this.state.generation + 1;
     this.emit({ type: 'core.started', generation });
     return generation;
@@ -115,14 +122,23 @@ export class ControlCore {
     return clean;
   }
 
-  setProjectOptions(projectId: string, options: { useWorktree?: boolean; preamble?: string }): void {
+  setProjectOptions(projectId: string, options: { useWorktree?: boolean; preamble?: string; approvalMode?: ApprovalMode; captureKnowledge?: boolean; description?: string }): void {
     const p = this.state.projects.get(projectId);
     if (!p) throw new Error('unknown project');
-    const change: { useWorktree?: boolean; preamble?: string } = {};
+    const change: { useWorktree?: boolean; preamble?: string; approvalMode?: ApprovalMode; captureKnowledge?: boolean; description?: string } = {};
+    if (options.approvalMode !== undefined) {
+      if (!APPROVAL_MODES.includes(options.approvalMode)) throw new Error('unknown approval mode');
+      if (options.approvalMode !== p.approvalMode) change.approvalMode = options.approvalMode;
+    }
     if (options.useWorktree !== undefined && !!options.useWorktree !== p.useWorktree) change.useWorktree = !!options.useWorktree;
+    if (options.captureKnowledge !== undefined && !!options.captureKnowledge !== (p.captureKnowledge !== false)) change.captureKnowledge = !!options.captureKnowledge;
     if (options.preamble !== undefined) {
       const preamble = String(options.preamble ?? '').slice(0, 20000);
       if (preamble !== (p.preamble ?? '')) change.preamble = preamble;
+    }
+    if (options.description !== undefined) {
+      const description = String(options.description ?? '').trim().slice(0, PROJECT_DESCRIPTION_MAX);
+      if (description !== (p.description ?? '')) change.description = description;
     }
     if (Object.keys(change).length) this.emit({ type: 'project.options_changed', projectId, ...change });
   }
@@ -249,6 +265,7 @@ export class ControlCore {
     if (patch.maxConcurrent !== undefined) next.maxConcurrent = Math.min(20, Math.max(1, Math.floor(Number(patch.maxConcurrent)) || 1));
     if (patch.minFreeMemoryMB !== undefined) next.minFreeMemoryMB = Math.min(65536, Math.max(0, Math.floor(Number(patch.minFreeMemoryMB)) || 0));
     if (patch.confirmCommands !== undefined) next.confirmCommands = patch.confirmCommands !== false;
+    if (patch.autoResumeOnLimit !== undefined) next.autoResumeOnLimit = patch.autoResumeOnLimit !== false;
     if (patch.preamble !== undefined) next.preamble = String(patch.preamble ?? '').slice(0, 20000);
     if (patch.sideChat !== undefined && patch.sideChat !== null && typeof patch.sideChat === 'object') {
       const c = patch.sideChat as Partial<Settings['sideChat']>;
@@ -258,8 +275,170 @@ export class ControlCore {
         effort: String(c.effort ?? '').trim().slice(0, 30),
       };
     }
+    if (patch.knowledge !== undefined && patch.knowledge !== null && typeof patch.knowledge === 'object') {
+      const c = patch.knowledge as Partial<KnowledgeSettings>;
+      const now = this.state.settings.knowledge;
+      const k = { ...now, capture: c.capture === undefined ? now.capture : c.capture !== false, inject: c.inject === undefined ? now.inject : c.inject !== false };
+      for (const key of ['captureAi', 'tuneAi'] as const) {
+        const ai = c[key];
+        if (!ai || typeof ai !== 'object') continue;
+        k[key] = {
+          provider: ai.provider === 'codex' ? 'codex' : 'claude',
+          model: String(ai.model ?? '').trim().slice(0, 120),
+          effort: String(ai.effort ?? '').trim().slice(0, 30),
+        };
+      }
+      if (JSON.stringify(k) !== JSON.stringify(now)) next.knowledge = k;
+    }
+    if (patch.voice !== undefined && patch.voice !== null && typeof patch.voice === 'object') {
+      const c = patch.voice as Partial<VoiceSettings>;
+      const now = this.state.settings.voice;
+      const v: VoiceSettings = { ...now, plannerAi: { ...now.plannerAi }, confirm: c.confirm === undefined ? now.confirm : c.confirm !== false };
+      if (c.recognizer !== undefined) v.recognizer = String(c.recognizer ?? '').trim().slice(0, 60);
+      if (c.words !== undefined) v.words = voiceWords(c.words);
+      if (c.plannerAi && typeof c.plannerAi === 'object') {
+        v.plannerAi = {
+          provider: c.plannerAi.provider === 'codex' ? 'codex' : 'claude',
+          model: String(c.plannerAi.model ?? '').trim().slice(0, 120),
+          effort: String(c.plannerAi.effort ?? '').trim().slice(0, 30),
+        };
+      }
+      if (JSON.stringify(v) !== JSON.stringify(now)) next.voice = v;
+    }
     if (Object.keys(next).length) this.emit({ type: 'settings.changed', settings: next });
     return this.state.settings;
+  }
+
+  recordUsageLimits(provider: ProviderId, limits: UsageLimit[]): void {
+    const key = (l: UsageLimit) => JSON.stringify([l.model ?? null, l.kind ?? 'other', l.label]);
+    const merged = new Map((this.state.usageLimits.get(provider) ?? []).map((l) => [key(l), l]));
+    for (const l of limits) merged.set(key(l), l);
+    const next = [...merged.values()];
+    if (JSON.stringify(next) !== JSON.stringify(this.state.usageLimits.get(provider) ?? [])) this.emit({ type: 'usage.limits_updated', provider, limits: next });
+  }
+
+  // ---- the human's standing preferences (こだわり) --------------------------------------------------
+
+  /** Upgrade older, individual entries once. Original events stay in the log; replacement is atomic. */
+  private consolidateKnowledge(): void {
+    const k = this.state.knowledge;
+    const entries: KnowledgeEntry[] = [];
+    const remove: string[] = [];
+    for (const domainId of k.domains.keys()) {
+      const old = [...k.entries.values()].filter((e) => e.domainId === domainId);
+      if (!old.length || (old.length === 1 && old[0]!.scope === 'all')) continue;
+      entries.push(mergeKnowledgeEntries(this.state, old, domainId));
+      remove.push(...old.map((e) => e.id));
+    }
+    if (entries.length) this.emit({ type: 'knowledge.prompts_set', entries, remove });
+  }
+
+  /** Make an area (no id) or change one. Answers its id. */
+  setKnowledgeDomain(input: { id?: string; name?: string; description?: string; always?: boolean }): string {
+    const k = this.state.knowledge;
+    const d = input.id ? k.domains.get(input.id) : undefined;
+    if (input.id && !d) throw new Error('unknown domain');
+    const change: { name?: string; description?: string; always?: boolean } = {};
+    if (input.name !== undefined) {
+      const name = cleanLine(input.name, KNOWLEDGE_LIMITS.domainName);
+      if (!name) throw new Error('empty name');
+      if (name !== d?.name) change.name = name;
+    } else if (!d) throw new Error('empty name');
+    if (input.description !== undefined) {
+      const description = cleanLine(input.description, KNOWLEDGE_LIMITS.domainDescription);
+      if (description !== (d?.description ?? '')) change.description = description;
+    }
+    if (input.always !== undefined && !!input.always !== (d?.always ?? false)) change.always = !!input.always;
+    if (!d && k.domains.size >= KNOWLEDGE_LIMITS.domains) throw new Error('too many domains');
+    const domainId = d?.id ?? randomUUID();
+    if (!d || Object.keys(change).length) this.emit({ type: 'knowledge.domain_set', domainId, ...change });
+    return domainId;
+  }
+
+  /** Remove an area; what was in it goes to その他. その他 itself stays. */
+  removeKnowledgeDomain(domainId: string): void {
+    if (domainId === OTHER_DOMAIN_ID) throw new Error('the catch-all domain stays');
+    if (!this.state.knowledge.domains.has(domainId)) return;
+    const k = this.state.knowledge;
+    const moveTo = k.domains.has(OTHER_DOMAIN_ID) ? OTHER_DOMAIN_ID : null;
+    const source = [...k.entries.values()].filter((e) => e.domainId === domainId);
+    if (moveTo && source.length) {
+      const target = [...k.entries.values()].filter((e) => e.domainId === moveTo);
+      const merged = mergeKnowledgeEntries(this.state, [...target, ...source], moveTo);
+      if (target.length) merged.id = target[0]!.id;
+      this.emit({ type: 'knowledge.prompts_set', entries: [merged], remove: [...target, ...source].map((e) => e.id) });
+    }
+    this.emit({ type: 'knowledge.domain_removed', domainId, moveTo });
+  }
+
+  /**
+   * Append to a section's single prompt. Answers its existing id, or null for empty text.
+   * `seen`: written by the human (true), or read from what they said and not yet looked at (false).
+   */
+  addKnowledgeEntry(input: { domainId: string; text: string; sessionId?: string | null; scope?: string | null; seen?: boolean }): string | null {
+    const k = this.state.knowledge;
+    const domainId = k.domains.has(input.domainId) ? input.domainId : k.domains.has(OTHER_DOMAIN_ID) ? OTHER_DOMAIN_ID : null;
+    if (!domainId) return null;
+    const text = cleanText(input.text, Infinity);
+    if (!text) return null;
+    const old = [...k.entries.values()].filter((e) => e.domainId === domainId);
+    const at = this.now();
+    const entry: KnowledgeEntry = { id: randomUUID(), domainId, text, sessionId: input.sessionId ?? null, scope: this.scopeOf(input.scope), hits: 1, createdAt: at, updatedAt: at, seen: input.seen ?? true };
+    const merged = mergeKnowledgeEntries(this.state, [...old, entry], domainId);
+    if (old.length) merged.id = old[0]!.id;
+    merged.updatedAt = at;
+    merged.sessionId = input.sessionId ?? merged.sessionId;
+    merged.seen = input.seen ?? true;
+    this.emit({ type: 'knowledge.prompts_set', entries: [merged], remove: old.map((e) => e.id) });
+    return merged.id;
+  }
+
+  private scopeOf(scope: string | null | undefined): string {
+    return scope && scope !== 'all' && this.state.projects.has(scope) ? scope : 'all';
+  }
+
+  /** Rewrite a preference. An empty text removes it. */
+  updateKnowledgeEntry(entryId: string, patch: { text?: string; domainId?: string; scope?: string; seen?: boolean }): void {
+    const k = this.state.knowledge;
+    const e = k.entries.get(entryId);
+    if (!e) throw new Error('unknown entry');
+    const next = { ...e };
+    if (patch.text !== undefined) {
+      const text = cleanText(patch.text, Infinity);
+      if (!text) return this.removeKnowledgeEntry(entryId);
+      next.text = text;
+    }
+    if (patch.domainId !== undefined && patch.domainId !== e.domainId) {
+      if (!k.domains.has(patch.domainId)) throw new Error('unknown domain');
+      next.domainId = patch.domainId;
+    }
+    if (patch.scope !== undefined) {
+      next.text = scopedKnowledgeText(this.state, this.scopeOf(patch.scope), next.text);
+      next.scope = 'all';
+    }
+    next.seen = patch.seen ?? true;
+    if (next.text === e.text && next.domainId === e.domainId && next.scope === e.scope && next.seen === e.seen) return;
+    next.updatedAt = this.now();
+    const target = [...k.entries.values()].filter((x) => x.domainId === next.domainId && x.id !== entryId);
+    // Keep the target's id on moves, so subsequent edits can keep referring to the section.
+    const merged = target.length ? { ...mergeKnowledgeEntries(this.state, [...target, next], next.domainId), id: target[0]!.id } : next;
+    merged.seen = next.seen;
+    this.emit({ type: 'knowledge.prompts_set', entries: [merged], remove: [entryId, ...target.map((x) => x.id)] });
+  }
+
+  removeKnowledgeEntry(entryId: string): void {
+    if (this.state.knowledge.entries.has(entryId)) this.emit({ type: 'knowledge.entry_removed', entryId });
+  }
+
+  /** The same preference came up again. */
+  reinforceKnowledgeEntry(entryId: string, from: { sessionId?: string | null }): void {
+    if (!this.state.knowledge.entries.has(entryId)) return;
+    this.emit({ type: 'knowledge.entry_reinforced', entryId, sessionId: from.sessionId ?? null });
+  }
+
+  /** The human looked at what was recorded by itself. */
+  markKnowledgeSeen(): void {
+    if ([...this.state.knowledge.entries.values()].some((e) => !e.seen)) this.emit({ type: 'knowledge.seen' });
   }
 
   /** The human opened the session: its finished result is no longer "new". */
@@ -376,6 +555,11 @@ export class ControlCore {
     this.replies.delete(itemId);
     this.emit({ type: 'attention.expired', itemId, reason });
   }
+}
+
+/** The human's own words for voice input: one per line, blank lines and stray spaces dropped, a sane number of them. */
+function voiceWords(raw: unknown): string {
+  return String(raw ?? '').split(/\r?\n/).map((w) => w.trim().slice(0, 80)).filter(Boolean).slice(0, 200).join('\n');
 }
 
 const STATUS_JA: Record<AttentionItem['status'], string> = {

@@ -206,7 +206,7 @@ try {
   check('H3', 'clicking the command runs it in the work folder; its step is ticked and the result recorded', rRun.status === 200 && rRun.body.ok === true && /MERGED_42/.test(rRun.body.output) && sess(sH3, HS).task.humanSteps[0].done === true && (await transcriptText(HS)).includes('あなたが実行'), rRun.body);
   const rStep = await post(`/api/sessions/${HS}/step`, { index: 1, done: true });
   const sH4 = await state();
-  check('H4', 'ticking the last step completes the task (and puts it away)', rStep.body.completed === true && sess(sH4, HS).completion === 'accepted' && sess(sH4, HS).archived === true);
+  check('H4', 'ticking the last step completes the task (and leaves the chat unarchived)', rStep.body.completed === true && sess(sH4, HS).completion === 'accepted' && sess(sH4, HS).archived === false);
 
   // ---- stored data -------------------------------------------------------------------------------------------
   const st0 = await get('/api/storage');

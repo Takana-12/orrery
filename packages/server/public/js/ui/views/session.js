@@ -1,11 +1,14 @@
 // One piece of work: its conversation, what it is waiting for, and the box to say more.
 import { act, confirmSent, loadTranscript, markSeen, sendMessage } from '../../logic/actions.js';
+import { composerChoice } from '../../logic/ai.js';
 import { ago, agoWord, clock, mb } from '../../logic/format.js';
 import { sessionModel } from '../../logic/selectors.js';
 import { store } from '../../logic/store.js';
 import { toolSummary } from '../../logic/text.js';
+import { beginVoice } from '../../logic/voice.js';
 import { attachments } from '../attachments.js';
 import { $, autoGrow, el, put, sync } from '../dom.js';
+import { effortPicker } from '../effort-picker.js';
 import { icon } from '../icons.js';
 import { go, render, ui } from '../shell.js';
 import { finishWork, richText, stepsBox, verdictNodes } from '../task-parts.js';
@@ -67,7 +70,10 @@ export function sessionView(id) {
   const held = el('div', { class: 'held' });
   const card = el('div', { class: 'composer' });
   const att = attachments(`s:${id}`, text, card, (m) => { sendErr.textContent = m; });
-  card.append(text, el('div', { class: 'bar' }, att.button, hint, sendErr, el('span', { class: 'grow' }), send));
+  const effort = effortPicker({ value: composerChoice(s0), onChange: (value) => store.composerEfforts.set(id, value) });
+  // Voice input for the hand on the mouse: what is said is a reply to this work (holding Space does the same).
+  const speak = el('button', { type: 'button', class: 'quiet ib', title: '音声で返信（Space 長押し）', 'aria-label': '音声で返信', onclick: () => beginVoice('toggle', { replyTo: id }) }, icon('mic'));
+  card.append(text, el('div', { class: 'bar' }, att.button, speak, effort.node, hint, sendErr, el('span', { class: 'grow' }), send));
   const stepsSlot = el('div', { class: 'steps-slot' }); // the switch between the steps and the record sits on the composer's top right
   const foot = el('div', { class: 's-foot' }, el('div', { class: 'inner' }, pending, held, att.tray, stepsSlot, card));
   const screen = el('div', { class: 'session' });
@@ -159,6 +165,9 @@ export function sessionView(id) {
       const model = sessionModel(store.state, id);
       if (!model) return;
       const { s, busy, leftovers, others, mine } = model;
+      // Words put into this box from elsewhere (voice input, or a reply that could not be sent).
+      if (store.composerFill.delete(id)) { text.value = store.composerDrafts.get(id) ?? ''; autoGrow(text); }
+      effort.set(composerChoice(s));
       if (s.unread && document.visibilityState === 'visible') markSeen(id);
       const def = STATE[s.lifecycle] ?? STATE.unknown;
       const waitsBg = waitsForBackground(s);
@@ -169,7 +178,7 @@ export function sessionView(id) {
         el('div', { class: 'msg user unsent' }, icon('user'), el('div', {}, el('div', { class: 'text' }, m.text), el('div', { class: 'when' }, icon(m.sent ? 'clock' : 'running', m.sent ? 's' : 's spin'), m.sent ? ' 送信済み（エージェントの開始待ち）' : ' 送信中'))));
       if (s.completion !== 'human_steps') stepsShown.delete(id); // the next list of steps is shown first again
       const res = s.resources;
-      const sig = [s.lifecycle, s.completion, s.taskTitle, s.effort, s.approvalMode, s.deferredMessage, s.busyWith, s.awaitingBackground, (s.background ?? []).join('、'), others.length, JSON.stringify(s.task?.humanSteps ?? null), stepsShown.get(id), s.queuePosition, s.task?.validating, s.task?.validation?.at, s.task?.fixRounds, s.live, s.process, s.model, s.archived, s.resumability, JSON.stringify(s.pullRequest ?? null), res?.processCount, res && Math.round(res.workingSetBytes / 5e6), store.errors.get(id), ago(s.lifecycleSince)].join('|');
+      const sig = [s.lifecycle, s.completion, s.taskTitle, s.effort, s.approvalMode, s.deferredMessage, s.busyWith, s.awaitingBackground, JSON.stringify(s.usageResume ?? null), (s.background ?? []).join('、'), others.length, JSON.stringify(s.task?.humanSteps ?? null), stepsShown.get(id), s.queuePosition, s.task?.validating, s.task?.validation?.at, s.task?.fixRounds, s.live, s.process, s.model, s.archived, s.resumability, JSON.stringify(s.pullRequest ?? null), res?.processCount, res && Math.round(res.workingSetBytes / 5e6), s.error, store.errors.get(id), ago(s.lifecycleSince)].join('|');
       if (sig !== headSig) {
         headSig = sig;
         title.textContent = s.taskTitle;
@@ -206,7 +215,7 @@ export function sessionView(id) {
             ? el('button', { class: 'done-btn', title: '完了を取り消して作業に戻す', onclick: () => act(id, 'reopen') }, icon('restore', 's'), '作業に戻す')
             : el('button', { class: 'done-btn primary', title: 'この作業を完了にして片付ける（いつでも戻せます）', onclick: async () => { if (await finishWork(s)) go('#/'); } }, icon('check', 's'), '完了にする'),
           others.length > 0 && el('button', { class: 'primary', title: `次の判断待ちへ（${others.length}件）`, 'aria-label': `次の判断待ちへ（${others.length}件）`, onclick: () => go(`#/s/${others[0].sessionId}`) }, icon('attention', 's'), String(others.length)));
-        err.textContent = store.errors.get(id) ?? '';
+        err.textContent = store.errors.get(id) ?? s.error ?? '';
         const steps = s.completion === 'human_steps' ? s.task?.humanSteps ?? [] : [];
         const stepsMode = steps.length > 0 && stepsShown.get(id) !== false;
         screen.classList.toggle('steps-mode', stepsMode);

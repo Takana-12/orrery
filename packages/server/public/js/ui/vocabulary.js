@@ -27,6 +27,15 @@ export const VERDICT = {
 const WAITING_BG = { word: 'バックグラウンド作業の終了待ち', icon: 'clock', tone: 'blue' };
 export const waitsForBackground = (s) => s.lifecycle === 'running' && !!s.awaitingBackground;
 /** What is being done to a session right now because the human asked (shown from the click on). */
+/** What the こだわり chat did to the record: one icon + one word per kind of change. */
+export const TUNE_CHANGE = {
+  domain: { word: '領域を追加', icon: 'plan', tone: 'blue' },
+  add: { word: '追加', icon: 'plus', tone: 'green' },
+  update: { word: '書き直し', icon: 'pencil', tone: 'blue' },
+  move: { word: '移動', icon: 'next', tone: 'dim' },
+  remove: { word: '削除', icon: 'trash', tone: 'red' },
+  reinforce: { word: '記録済み', icon: 'check', tone: 'dim' },
+};
 export const BUSY_WORD = { interrupt: '中断しています…', stop: 'プロセスを終了しています…', cleanup: '残ったプロセスを終了しています…', check: '検証を始めています…', finish: '完了として扱っています…' };
 /** One lamp per strip: the task verdict when there is one, otherwise the session state. */
 export const lampFor = (s, cls = '') => {
@@ -64,6 +73,7 @@ export const ptag = (p) => {
 /** The keyboard, as listed in settings. Each entry: alternatives (each a combination of keys) and what they do. */
 export const SHORTCUTS = [
   { keys: [['Space'], ['n']], word: 'ホームで新しい作業を書く' },
+  { keys: [['Space 長押し']], word: '音声で頼む（離すと送る）' },
   { keys: [['i']], word: 'ホーム' },
   { keys: [['Ctrl', 'U']], word: '利用状況' },
   { keys: [['Ctrl', 'H']], word: 'アーカイブ' },

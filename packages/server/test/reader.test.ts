@@ -31,6 +31,9 @@ function world(script: (reply: string, background: string[]) => ReplyReading | n
   const assistant = new Assistant(rt, {
     generateTitle: async () => null,
     readCommandResult: async () => null,
+    extractPreferences: async () => null,
+    routeKnowledge: async () => null,
+    tunePreferences: async () => null,
     clarifyChecks: async (x) => (asked.push(x), clarify(x)),
     readFinalReply: async (reply, context) => {
       calls.push({ reply, background: context.background });

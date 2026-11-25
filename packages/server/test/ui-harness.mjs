@@ -54,7 +54,7 @@ function stub() {
     sess('s7', { taskTitle: 'Windowsジョブの後始末', provider: 'codex', lifecycle: 'error', error: 'プロセスが異常終了しました', lifecycleSince: NOW - 50 * min, completion: 'working', live: false, unread: true, resumability: 'unrecoverable' }),
     sess('s8', { taskTitle: '検証に通った作業', completion: 'candidate', task: task({ validation: validation(true) }) }),
     sess('s9', { taskTitle: '検証に落ちた作業', completion: 'needs_fix', unread: true, task: task({ validation: validation(false) }) }),
-    sess('s10', { taskTitle: 'リリース手順の残り', completion: 'human_steps', lastText: '実装は終わりました。`npm run install-app` を実行してください。', task: task({ checkCommand: null, humanSteps: [{ title: 'アプリを入れ直す', detail: 'ビルドに1分ほどかかります', command: 'npm run install-app', after: 'いま回しているテストが通ってから', done: false }, { title: 'PRをマージする', detail: null, command: null, after: null, done: true }] }) }),
+    sess('s10', { taskTitle: 'リリース手順の残り', completion: 'human_steps', lastText: '実装は終わりました。`npm run install-app` を実行してください。', task: task({ checkCommand: null, humanSteps: [{ title: 'アプリを入れ直す', detail: 'ビルドに1分ほどかかります', command: 'npm run install-app', after: 'いま回しているテストが通ってから', done: false }, { title: '入れ直したアプリで動作を確かめる', detail: null, command: null, after: 'アプリを入れ直してから', done: false }, { title: 'PRをマージする', detail: null, command: null, after: null, done: true }] }) }),
     sess('s11', { taskTitle: '途中で止めた作業', lifecycle: 'interrupted', lifecycleSince: NOW - 20 * min, completion: 'working', live: false, lastTurnOutcome: 'interrupted', resources: { processCount: 2, workingSetBytes: 90e6, privateBytes: 50e6, shared: false, scope: 'この作業のプロセス', sampledAt: NOW } }),
     sess('s12', { taskTitle: '検証中の作業', completion: 'validating', task: task({ validating: true }) }),
     sess('s13', { taskTitle: '片付けた作業', archived: true, completion: 'accepted', live: false, task: task({ acceptedAt: NOW - 100 * min, validation: validation(true) }), worktree: { path: 'C:\\data\\wt\\b', branch: 'orrery/261122-def', removed: true, keptBranch: true } }),
@@ -89,10 +89,48 @@ function stub() {
     auth: { claude: { loggedIn: true, plan: 'max', loginInProgress: false, error: null }, codex: { loggedIn: false, plan: null, loginInProgress: false, error: null } },
     sessions, items,
     queue: { blockedBy: 'slots', length: 1, freeMemoryMB: 6120 },
-    settings: { maxConcurrent: 3, minFreeMemoryMB: 1500, confirmCommands: true, sideChat: { provider: 'claude', model: 'sonnet', effort: 'low' } },
+    settings: { maxConcurrent: 3, minFreeMemoryMB: 1500, confirmCommands: true, sideChat: { provider: 'claude', model: 'sonnet', effort: 'low' }, knowledge: { capture: true, inject: true }, voice: { plannerAi: { provider: 'claude', model: 'haiku', effort: '' }, confirm: !location.search.includes('noconfirm') } },
+    voice: { model: { state: location.search.includes('nomodel') ? 'missing' : 'ready', progress: 1, bytes: 239549735, label: 'SenseVoice Small', error: null } },
     chats: [],
     projects: [{ id: 'p1', name: 'orrery', rootPath: 'C:\\work\\orrery', createdAt: NOW, envCount: 2 }, { id: 'p2', name: 'ledger', rootPath: 'C:\\work\\ledger', createdAt: NOW, envCount: 0 }],
     capabilities: {},
+    // One prompt per section: normal, near the attachment limit, over it, and two not yet looked at.
+    knowledge: {
+      domains: [
+        { id: 'ui', name: 'UI・操作感', description: '画面の見た目、操作したときの反応、レイアウト、表示する言葉の量', always: false, order: 0 },
+        { id: 'writing', name: '文章・言葉づかい', description: '文章の構成、言葉の選び方、説明や報告の書き方', always: false, order: 1 },
+        { id: 'workflow', name: '進め方・git・報告', description: '作業の進め方、ブランチやコミット、マージ、報告のしかた', always: true, order: 2 },
+        { id: 'other', name: 'その他', description: 'どの領域にも当てはまらないこだわり', always: false, order: 3 },
+      ],
+      entries: [
+        { id: 'k1', domainId: 'ui', text: '操作したら、確定を待たずにその場で画面を変える。断られたら元に戻して理由を出す。\n\n新しい種類の状態を作ったら、必ず inbox から辿れるようにする。', sessionId: 's1', scope: 'all', hits: 5, createdAt: NOW - 90 * min, updatedAt: NOW - 30 * min, seen: true },
+        { id: 'k3', domainId: 'writing', text: '報告は結論から書く。' + '補足は短く、専門用語は最初に一度だけ説明する。'.repeat(180), sessionId: 's2', scope: 'all', hits: 1, createdAt: NOW - 5 * min, updatedAt: NOW - 5 * min, seen: false },
+        { id: 'k4', domainId: 'workflow', text: '新しい作業は新しいブランチで進め、終わったらマージする。', sessionId: 's3', scope: 'all', hits: 2, createdAt: NOW - 3 * min, updatedAt: NOW - 3 * min, seen: false },
+        { id: 'kx', domainId: 'other', text: '以前に保存した長いプロンプトも、削らず残しておく。'.repeat(240), sessionId: null, scope: 'all', hits: 1, createdAt: NOW - 200 * min, updatedAt: NOW, seen: true },
+      ],
+      unseen: 2,
+      limits: { sectionText: 5000, domainName: 40, domainDescription: 200, domains: 30, routeThreshold: 1500, maxRoutedDomains: 3 },
+      heading: '## ユーザーのこだわり（この作業に関係する領域のみ）',
+      // The こだわり chat: one message read into changes of every kind, one that could not be read, one being read.
+      tune: {
+        busy: true,
+        max: 12000,
+        messages: [
+          { id: 't1', role: 'human', text: '保存ボタンは右に置いて。あと、確認ダイアログは出さないで取り消せるようにしてほしい。', at: NOW - 20 * min },
+          { id: 't2', role: 'ai', text: 'ボタンの置き場所を新しく記録し、取り消しの決まりを書き直しました。', at: NOW - 19 * min, changes: [
+            { kind: 'domain', domain: '操作の安全', text: '取り消し・確認・破壊的な操作の扱い' },
+            { kind: 'add', domain: 'UI・操作感', text: '決定・保存のボタンは並びの右端に置く。' },
+            { kind: 'update', domain: '操作の安全', text: '操作は確認ダイアログではなく、あとから取り消せる形にする。' },
+            { kind: 'move', domain: 'その他', text: 'その他のこだわり 1' },
+            { kind: 'remove', domain: 'UI・操作感', text: '確認ダイアログを出す。' },
+            { kind: 'reinforce', domain: 'UI・操作感', text: '操作したら、確定を待たずにその場で画面を変える。' },
+          ] },
+          { id: 't3', role: 'human', text: 'よろしく', at: NOW - 10 * min },
+          { id: 't4', role: 'ai', text: '読み取れませんでした。もう一度送ってください。', at: NOW - 9 * min, changes: [], failed: true },
+          { id: 't5', role: 'human', text: 'コミットメッセージは英語で', at: NOW - 1 * min },
+        ],
+      },
+    },
   };
   const MODELS = {
     claude: [{ id: 'opus', label: 'Opus 5.5', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], isDefault: true }, { id: 'sonnet', label: 'Sonnet 5.5', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] }, { id: 'haiku', label: 'Haiku 5.5', efforts: [] }],
@@ -175,6 +213,19 @@ function stub() {
       return json({ ok: false, exitCode: 1, output: last.outputTail, step: { done: false, note: last.note, completed: false } });
     }
     // Explorer, by hand: it "picks" C:\work\atlas; registering it adds the project to the next picture a second later.
+    // Voice input, by hand (?manual): whatever is said, the same two pieces of work are heard and planned.
+    if (MANUAL && path === '/api/voice/prepare') return json({ ok: true });
+    if (MANUAL && path === '/api/voice/transcribe') {
+      await sleep(900);
+      return location.search.includes('fail') ? json({ text: '' }) : json({ text: 'orreryのホーム画面のバグを直して。それとledgerの移行スクリプトにテストを足して、こっちはCodexでお願い。' });
+    }
+    if (MANUAL && path === '/api/voice/plan') {
+      await sleep(1400);
+      return json({ tasks: [
+        { projectId: 'p1', provider: 'claude', model: 'opus', effort: 'medium', prompt: 'ホーム画面のバグを直して。' },
+        { projectId: 'p2', provider: 'codex', model: 'gpt-5.5-codex', effort: 'medium', prompt: '移行スクリプトにテストを足して。' },
+      ] });
+    }
     if (MANUAL && path === '/api/pick-folder') { await sleep(300); return json({ path: 'C:\\work\\atlas' }); }
     if (MANUAL && path === '/api/projects' && !location.search.includes('fail')) {
       await sleep(1000);
@@ -186,6 +237,11 @@ function stub() {
     if (MANUAL && init?.method === 'POST') {
       await sleep(1000);
       if (location.search.includes('fail')) return json({ error: 'ハーネスが断りました（失敗時の表示の確認用）' }, 409);
+      if ((m = path.match(/^\/api\/sessions\/([\w-]+)\/message$/))) {
+        const body = JSON.parse(init.body);
+        const s = state.sessions.find((x) => x.id === m[1]);
+        if (s && body.effort !== undefined) { s.effort = body.effort; push(); }
+      }
       return json(/\/message$/.test(path) ? { resumed: false, queued: false } : /\/step$/.test(path) ? { completed: false } : { ok: true });
     }
     return json({ error: 'ハーネスなので、ここから先は動きません' }, 409);
@@ -195,7 +251,7 @@ function stub() {
   window.addEventListener('load', async () => {
     if (MANUAL) return;
     await sleep(600);
-    const routes = ['#/', ...sessions.map((s) => `#/s/${s.id}`), '#/s/none', '#/new', '#/archive', '#/settings', '#/usage', '#/env/p1', '#/env/none', '#/'];
+    const routes = ['#/', ...sessions.map((s) => `#/s/${s.id}`), '#/s/none', '#/new', '#/archive', '#/settings', '#/knowledge', '#/knowledge/tune', '#/usage', '#/env/p1', '#/env/none', '#/'];
     let n = 0;
     for (const r of routes) {
       location.hash = r;

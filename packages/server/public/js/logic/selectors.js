@@ -191,6 +191,23 @@ const UPDATE_RANK = { none: 0, reload: 1, rebuild: 2 };
 export const openPlainStep = (st) => !st.check && !st.done;
 
 /**
+ * Which of a work's ordinary steps the inbox shows now, by index. A step that names a precondition (`after`) waits
+ * behind every earlier step still open: those come first, and it appears only once they are done. When nothing earlier
+ * is open, its precondition is something outside the list ("CIが緑になったら"), so it shows with that precondition
+ * first. Steps without a precondition can be done now and always show.
+ */
+export function inboxStepIndexes(steps) {
+  const shown = [];
+  for (let i = 0; i < steps.length; i++) {
+    const st = steps[i];
+    if (!openPlainStep(st)) continue;
+    if (st.after && steps.slice(0, i).some((x) => !x.check && !x.done)) continue;
+    shown.push(i);
+  }
+  return shown;
+}
+
+/**
  * The things to look at, from every work that waits on the human, one group per project: works in the same project
  * usually leave the same action (bring the change into the app) and differ only in what to look at. The group's action
  * is the strongest any of them needs (rebuild > reload > none). Items keep their work and their place in its list, so

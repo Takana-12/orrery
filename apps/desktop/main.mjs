@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { launch, PortInUseError } from '../../packages/server/src/launch.ts';
+import { allowMicrophoneOnly } from './permissions.mjs';
 import { createUpdater } from './updater.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -102,12 +103,12 @@ async function start() {
   process.on('unhandledRejection', (e) => running.logProblem('unhandledRejection', e));
   process.on('uncaughtException', (e) => running.logProblem('uncaughtException', e));
 
-  // The page is our own local UI. It gets no extra powers: no Node, no remote content, no browser permissions.
+  // The page is our own local UI. It gets no extra powers: no Node, no remote content, and one browser permission
+  // only: the microphone, for voice input (permissions.mjs).
   // Notifications are sent by this process instead (they must work while the window is hidden).
-  session.defaultSession.setPermissionRequestHandler((_wc, _permission, allow) => allow(false));
-  session.defaultSession.setPermissionCheckHandler(() => false);
-
   const origin = new URL(running.url).origin;
+  allowMicrophoneOnly(session.defaultSession, origin);
+
   win = new BrowserWindow({
     width: 1280,
     height: 860,

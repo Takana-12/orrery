@@ -30,6 +30,15 @@ export function ensureModels(provider) {
 
 export const findModel = (provider, id) => modelsOf(provider)?.models.find((m) => m.id === id) ?? null;
 
+/** A work's actual model comes first; providers may list the requested alias instead of the resolved id. */
+export const sessionEfforts = (s) => {
+  const family = s.provider === 'claude' ? /^claude-(opus|sonnet|haiku)(?:-|$)/.exec(s.model ?? '')?.[1] : null;
+  return (findModel(s.provider, s.model) ?? findModel(s.provider, s.requestedModel) ?? findModel(s.provider, family))?.efforts ?? [];
+};
+
+/** An unsent choice is local to this work; opening its screen never changes its saved effort. */
+export const composerChoice = (s) => ({ ...s, effort: store.composerEfforts.get(s.id) ?? s.effort });
+
 /** The middle of what a model offers (medium where there is one). */
 export const midEffort = (m) => {
   const e = m?.efforts ?? [];

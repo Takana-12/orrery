@@ -7,6 +7,7 @@ import { askUpdate } from './app-control.js';
 import { $, el, put, sync } from './dom.js';
 import { icon } from './icons.js';
 import { loginNotice } from './login-notice.js';
+import { sectionAnchor, sectionInView, SETTINGS_SECTIONS } from './settings-sections.js';
 import { go, render } from './shell.js';
 import { lampFor, nowLine, PROVIDER, ptag, waitsForBackground, wordFor } from './vocabulary.js';
 
@@ -24,22 +25,58 @@ function buildRail() {
   const home = tally.firstChild;
   const groups = el('div', {});
   const sendingBox = el('div', { class: 'sending-box' });
+  const toc = settingsToc();
   const authBox = el('div', { class: 'auth-box' });
   const ram = el('span', {});
   const limits = el('button', { class: 'rail-limits', onclick: () => go('#/usage'), title: '各サービスの利用枠の残り。ほかのアプリでの利用も含みます（クリックで利用状況）' });
   $('rail').replaceChildren(
     tally,
     authBox,
-    el('div', { class: 'rail-scroll' }, sendingBox, groups),
+    el('div', { class: 'rail-scroll' }, toc.node, sendingBox, groups),
     limits,
     el('div', { class: 'rail-foot' }, el('span', { class: 'grow', title: '' }, icon('chip', 's'), ram), el('button', { class: 'quiet', onclick: () => go('#/settings'), title: '設定 (Ctrl+,)', 'aria-label': '設定' }, icon('gear', 's')),
       el('button', { class: 'quiet', onclick: () => go('#/archive'), title: 'アーカイブ (Ctrl+H)', 'aria-label': 'アーカイブ' }, icon('archive', 's')),
       el('button', { class: 'quiet update-btn', onclick: askUpdate, title: '更新（ソースから作り直して開き直す）', 'aria-label': 'Orreryを更新' }, icon('restore', 's')),
       el('button', { class: 'quiet new-work-btn', onclick: () => go('#/new'), title: '新しい作業を始める (n)', 'aria-label': '新しい作業' }, icon('plus', 's'))));
-  rail = { cells, home, groups, sendingBox, authBox, ram, limits, sections: new Map() };
+  rail = { cells, home, groups, sendingBox, toc, authBox, ram, limits, sections: new Map() };
   // The plan limits are read here, for as long as the page lives: the rail is always on screen.
   loadUsage().then(() => paintLimits());
   setInterval(() => loadUsage().then(() => paintLimits()), 90_000);
+}
+
+/**
+ * While the settings screen is open, the top of the rail is its table of contents instead of the work list.
+ * A click marks the entry at once and scrolls the section to the top; scrolling by hand moves the mark along.
+ */
+function settingsToc() {
+  const main = $('main');
+  const items = new Map();
+  // Set by a click and kept until the human scrolls by hand, so the smooth scroll (or a short section at the
+  // bottom that cannot reach the top) does not move the mark away from what was clicked.
+  let pinned = null;
+  const mark = (id) => { for (const [k, b] of items) b.toggleAttribute('aria-current', k === id); };
+  const node = el('div', { class: 'set-toc', hidden: true }, SETTINGS_SECTIONS.map((s) => {
+    const b = el('button', { type: 'button', class: 'toc-row', onclick: () => {
+      pinned = s.id;
+      mark(s.id);
+      document.getElementById(sectionAnchor(s.id))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } }, icon(s.icon, 's'), el('span', {}, s.title));
+    items.set(s.id, b);
+    return b;
+  }));
+  const follow = () => { if (!node.hidden && !pinned) mark(sectionInView(main)); };
+  main.addEventListener('scroll', follow, { passive: true });
+  for (const ev of ['wheel', 'touchstart', 'keydown', 'pointerdown']) main.addEventListener(ev, () => { pinned = null; }, { passive: true });
+  return {
+    node,
+    /** Show it (or not) for the screen now open; on opening, the mark starts at the top section. */
+    show(on) {
+      if (on === !node.hidden) return;
+      node.hidden = !on;
+      pinned = null;
+      if (on) mark(SETTINGS_SECTIONS[0].id);
+    },
+  };
 }
 
 /** One battery: BATTERY_CELLS cells, lit from the left, coloured by how much is left. */
@@ -98,6 +135,11 @@ export function renderRail(r) {
     rail.authBox.dataset.sig = authSig;
     put(rail.authBox, ['claude', 'codex'].filter((p) => store.state.auth[p].loggedIn === false).map((p) => loginNotice(p)));
   }
+
+  // On the settings screen the list gives way to the settings' table of contents (everything below stays).
+  const onSettings = r.view === 'settings';
+  rail.toc.show(onSettings);
+  rail.sendingBox.hidden = rail.groups.hidden = onSettings;
 
   // Work just sent stays here until the control room lists it as a session.
   dropArrivedSending();

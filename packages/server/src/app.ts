@@ -22,12 +22,16 @@ import { SqliteStore } from './infrastructure/sqlite-store.ts';
 import { Worktrees } from './infrastructure/worktree.ts';
 import { AttachmentFiles } from './infrastructure/attachment-files.ts';
 import { pickFolderDialog, pullRequestOf } from './infrastructure/shell.ts';
+import { ChosenSpeech } from './infrastructure/speech.ts';
+import type { Speech } from './infrastructure/speech.ts';
 import { Accounts } from './application/accounts.ts';
 import { Assistant } from './application/assistant.ts';
 import { Checker } from './application/checker.ts';
 import { HttpError } from './application/errors.ts';
 import { Housekeeping } from './application/housekeeping.ts';
 import { Journal } from './application/journal.ts';
+import { Knowledge } from './application/knowledge.ts';
+import { KnowledgeTune } from './application/knowledge-tune.ts';
 import { Processes } from './application/processes.ts';
 import { PullRequests } from './application/pull-requests.ts';
 import { Reader } from './application/reader.ts';
@@ -39,6 +43,8 @@ import { SideChats, isChatId } from './application/side-chats.ts';
 import { Sessions } from './application/sessions.ts';
 import type { StartSessionInput as BaseStartInput } from './application/sessions.ts';
 import { Workspaces } from './application/workspaces.ts';
+import { UsageResumer } from './application/usage-resume.ts';
+import { Voice } from './application/voice.ts';
 
 export { HttpError };
 
@@ -52,6 +58,8 @@ export interface AppOptions {
   clearShellCache?: () => Promise<void>;
   codex?: CodexStartOptions;
   claude?: ClaudeOptions;
+  /** The speech recogniser (tests give their own; by default it runs on this machine, see infrastructure/speech.ts). */
+  speech?: Speech;
 }
 
 export interface StartSessionInput extends BaseStartInput {
@@ -75,8 +83,13 @@ export class App extends EventEmitter {
   private readonly sessions: Sessions;
   private readonly checker: Checker;
   private readonly reader: Reader;
+  private readonly usageResumer: UsageResumer;
   private readonly housekeeping: Housekeeping;
   private readonly chats: SideChats;
+  private readonly knowledge: Knowledge;
+  private readonly knowledgeTune: KnowledgeTune;
+  private readonly voice: Voice;
+  private readonly speech: Speech;
   private readonly opts: AppOptions;
   private sampler: NodeJS.Timeout | null = null;
 
@@ -98,7 +111,7 @@ export class App extends EventEmitter {
     this.scheduler = new Scheduler(rt, redact);
     this.workspaces = new Workspaces(rt, new Worktrees(home), this.journal, this.processes, redact);
     this.pullRequests = new PullRequests(rt, this.workspaces, pullRequestOf);
-    this.accounts = new Accounts(rt, opts.openExternal);
+    this.accounts = new Accounts(rt, opts.openExternal, (provider, limits) => this.usageResumer.observe(provider, limits));
     this.housekeeping = new Housekeeping(rt, this.journal, files, opts.clearShellCache);
     // Side chats run in one empty folder of their own: no project, nothing of the work's is in reach.
     const chatDir = join(home, 'side-chat');
@@ -111,14 +124,21 @@ export class App extends EventEmitter {
     const claude = new ClaudeAdapter(this.providerSink(), opts.claude);
     this.codex = new CodexAdapter(this.providerSink(), opts.codex);
     rt.adapters = { codex: this.codex, claude };
-    const assistant = new Assistant(rt, claude);
-    this.sessions = new Sessions(rt, { scheduler: this.scheduler, secrets: this.secrets, journal: this.journal, workspaces: this.workspaces, assistant, attachmentsDir: files.dir });
+    const assistant = new Assistant(rt, claude, { claude, codex: this.codex });
+    this.knowledge = new Knowledge(rt, this.journal, assistant, redact);
+    this.knowledgeTune = new KnowledgeTune(rt, this.knowledge, assistant, redact);
+    // Speech is recognised on this machine; its model lives in the data folder, downloaded on first use.
+    this.speech = opts.speech ?? new ChosenSpeech(join(home, 'models'), () => rt.notify(), () => rt.core.state.settings.voice.recognizer);
+    this.voice = new Voice(rt, { speech: this.speech, assistant, accounts: this.accounts });
+    this.sessions = new Sessions(rt, { scheduler: this.scheduler, secrets: this.secrets, journal: this.journal, workspaces: this.workspaces, assistant, knowledge: this.knowledge, attachmentsDir: files.dir });
+    this.usageResumer = new UsageResumer(rt, this.sessions, this.journal, (provider) => this.accounts.refreshLimits(provider));
     this.checker = new Checker(rt, this.sessions, this.secrets, this.journal);
     this.reader = new Reader(rt, this.sessions, this.secrets, this.journal, assistant);
 
     this.sampler = setInterval(() => {
       this.processes.sampleAll();
       this.scheduler.pump(); // free memory may have changed
+      this.usageResumer.tick();
       void this.pullRequests.tick();
     }, 5000);
     this.sampler.unref();
@@ -170,6 +190,8 @@ export class App extends EventEmitter {
         this.accounts.usageMoved(s.provider);
         rt.notify();
       },
+      usageLimits: (provider, limits) => this.usageResumer.observe(provider, limits),
+      usageBlocked: (sessionId) => this.usageResumer.blocked(sessionId),
       processSpawned: (owner, pid) => this.processes.own(owner.sessionId ?? `shared:${owner.provider}`, pid),
     };
   }
@@ -196,9 +218,9 @@ export class App extends EventEmitter {
 
   addProject(path: string, name?: string) { return this.sessions.addProject(path, name); }
   renameProject(projectId: string, name: string) { return this.sessions.renameProject(projectId, name); }
-  setProjectOptions(projectId: string, options: { useWorktree?: unknown; preamble?: unknown }) { return this.sessions.setProjectOptions(projectId, options); }
+  setProjectOptions(projectId: string, options: { useWorktree?: unknown; preamble?: unknown; approvalMode?: unknown; captureKnowledge?: unknown; description?: unknown }) { return this.sessions.setProjectOptions(projectId, options); }
   startSession(input: StartSessionInput) { return this.sessions.start(input); }
-  sendMessage(sessionId: string, text: string) { return this.sessions.send(sessionId, text); }
+  sendMessage(sessionId: string, text: string, options: { effort?: unknown } = {}) { return this.sessions.send(sessionId, text, options); }
   cancelDeferred(sessionId: string) { return this.sessions.cancelDeferred(sessionId); }
   interrupt(sessionId: string) { return this.sessions.interrupt(sessionId); }
   stop(sessionId: string) { return this.sessions.stop(sessionId); }
@@ -212,7 +234,20 @@ export class App extends EventEmitter {
   answer(itemId: string, answer: AttentionAnswer) { return this.sessions.answer(itemId, answer); }
   setSettings(patch: Partial<Settings>) { return this.sessions.setSettings(patch); }
   runCheck(sessionId: string) { return this.checker.run(sessionId); }
+
+  setKnowledgeDomain(input: { id?: unknown; name?: unknown; description?: unknown; always?: unknown }) { return this.knowledge.setDomain(input); }
+  removeKnowledgeDomain(domainId: string) { return this.knowledge.removeDomain(domainId); }
+  addKnowledgeEntry(input: { domainId?: unknown; text?: unknown; scope?: unknown }) { return this.knowledge.addEntry(input); }
+  updateKnowledgeEntry(entryId: string, patch: { text?: unknown; domainId?: unknown; scope?: unknown }) { return this.knowledge.updateEntry(entryId, patch); }
+  removeKnowledgeEntry(entryId: string) { return this.knowledge.removeEntry(entryId); }
+  markKnowledgeSeen() { return this.knowledge.markSeen(); }
+  sendKnowledgeTune(text: unknown) { return this.knowledgeTune.send(text); }
   cleanup(sessionId: string) { return this.processes.cleanup(sessionId); }
+
+  prepareVoice() { return this.voice.prepare(); }
+  transcribeVoice(recording: unknown) { return this.voice.transcribe(recording); }
+  planVoice(input: { text?: unknown; lastProjectId?: unknown; usual?: unknown }) { return this.voice.plan(input); }
+  tidyVoice(input: { text?: unknown; sessionId?: unknown }) { return this.voice.tidy(input); }
 
   startChat(input: { provider: unknown; model?: unknown; effort?: unknown; prompt: unknown }) { return this.chats.start(input); }
   sendChat(chatId: string, text: string) { return this.chats.send(chatId, text); }
@@ -241,12 +276,13 @@ export class App extends EventEmitter {
 
   /** The one document the UI is sent. */
   snapshot() {
-    return snapshot(this.rt, { scheduler: this.scheduler, processes: this.processes, workspaces: this.workspaces, journal: this.journal, sessions: this.sessions, chats: this.chats, accounts: this.accounts, secrets: this.secrets, pullRequests: this.pullRequests });
+    return snapshot(this.rt, { scheduler: this.scheduler, processes: this.processes, workspaces: this.workspaces, journal: this.journal, sessions: this.sessions, chats: this.chats, knowledgeTune: this.knowledgeTune, voice: this.voice, accounts: this.accounts, secrets: this.secrets, pullRequests: this.pullRequests });
   }
 
   async shutdown(opts: { archiveCodexThreads?: boolean } = {}): Promise<void> {
     if (this.sampler) clearInterval(this.sampler);
     this.accounts.stop();
+    this.speech.close();
     if (opts.archiveCodexThreads) for (const s of this.core.state.sessions.values()) if (s.provider === 'codex') await this.codex.archive(s.id);
     this.rt.closing = true;
     await this.rt.adapters.claude.shutdown();

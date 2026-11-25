@@ -5,6 +5,7 @@
 import { followState } from './logic/api.js';
 import { store } from './logic/store.js';
 import { mount } from './ui/app.js';
+import { mountRailResize } from './ui/rail-resize.js';
 import { banner } from './ui/shell.js';
 import { applyTheme } from './ui/theme.js';
 
@@ -24,6 +25,7 @@ store.token = sessionStorage.getItem('crToken') || '';
 }
 
 mount();
+mountRailResize();
 
 if (!store.token) banner(NO_ACCESS);
 else {

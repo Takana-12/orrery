@@ -27,6 +27,10 @@ export const store = {
   errors: new Map(),
   /** sessionId -> text being written in its reply box */
   composerDrafts: new Map(),
+  /** Sessions whose reply box was written to from elsewhere (voice input): the box takes its draft again when drawn. */
+  composerFill: new Set(),
+  /** sessionId -> effort selected for the next message, kept while other screens are open. Saved on send. */
+  composerEfforts: new Map(),
   /** sessionId -> [{ id, text }] messages sent from here that the conversation record does not show yet. */
   outbox: new Map(),
   /** Sessions whose row in the inbox has its reply box open. */
@@ -39,8 +43,12 @@ export const store = {
   lastOpenIds: [],
   /** New work just sent: shown in the rail at once, before the control room has answered. */
   sending: [],
-  /** What is being written on the new-work screen, kept while other screens are open. */
-  newDraft: { prompt: '', error: '', sent: null },
+  /** What is being written on the new-work screen, kept while other screens are open. `planMode` belongs to this one
+   *  request only: off by default, cleared once it is sent or another workspace is chosen, never saved anywhere.
+   *  `fill`: words to put into the box the next time it is drawn (what was said by voice, to be corrected by hand). */
+  newDraft: { prompt: '', error: '', sent: null, planMode: false, fill: null },
+  /** Voice input, the layer above the screens (see voice.js for the phases). */
+  voice: { phase: 'off', mode: 'hold', live: false, text: '', tasks: [], error: '', replyTo: '' },
   /** Last plan-limit reading per service (from /api/usage), shared by the rail's batteries and the usage screen. */
   limitsCache: null,
   /** The human asked to stop the whole app: the page shows that it is stopping and takes no more input. */

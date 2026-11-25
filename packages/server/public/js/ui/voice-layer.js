@@ -1,0 +1,231 @@
+// The voice layer: one level above the screens. While it is open, everything on the page that is not the background
+// dissolves (app.css, body[data-voice]) and only this is left: the sphere, what was heard, and the work it became.
+// Opened by holding Space (a short press keeps its old meaning) or by the microphone chip of the new-work box or of a
+// piece of work's reply box. Opened on a piece of work's screen, what is said is a reply to it.
+import { store } from '../logic/store.js';
+import { beginVoice, cancelVoice, confirmVoice, dropVoiceTask, endVoice, setVoicePrompt, setVoiceTask, voiceLevel, voiceReplyTargets, voiceToBox } from '../logic/voice.js';
+import { aiPicker } from './ai-picker.js';
+import { $, el, put, sync } from './dom.js';
+import { icon } from './icons.js';
+import { picker } from './menu.js';
+import { go, route } from './shell.js';
+import { wordFor } from './vocabulary.js';
+import { voiceOrb } from './voice-orb.js';
+
+/** Space held this long is "speak"; released sooner it is the short press it always was. */
+const HOLD_MS = 350;
+/** Space is down, from a press this module took notice of. */
+let held = false;
+let timer = null;
+
+/** The new-work box or a piece of work's reply box, with nothing written in it: a space typed there means nothing. */
+const boxEmpty = (a) => !!a?.matches?.('form.new textarea, .session .composer textarea') && !a.value.trim();
+
+function arm() {
+  held = true;
+  clearTimeout(timer);
+  // What the words are for is decided where the key went down: on a piece of work's screen they answer it (held again
+  // in the open layer, they keep what they were for). The short press that goes on may take the page elsewhere first.
+  const r = route();
+  const replyTo = store.voice.phase !== 'off' ? store.voice.replyTo : r.view === 'session' ? r.id : '';
+  timer = setTimeout(() => {
+    timer = null;
+    if (!held) return;
+    // Spaces that slipped into the empty box while the key was held (an IME's wide space) are not part of a request.
+    const a = document.activeElement;
+    if (boxEmpty(a) && a.value) { a.value = ''; a.dispatchEvent(new Event('input', { bubbles: true })); }
+    beginVoice('hold', { replyTo });
+    // The short press opened home on the way: the work being answered stays on screen under the layer.
+    if (replyTo && store.voice.replyTo === replyTo && route().id !== replyTo) go(`#/s/${replyTo}`);
+  }, HOLD_MS);
+}
+
+/**
+ * The page's keydown, offered here first. True: the key was this layer's, do nothing else with it.
+ * `typing`: the focus is in a text field.
+ */
+export function voiceKey(e, typing) {
+  const v = store.voice;
+  const space = e.code === 'Space' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+  if (v.phase === 'off') {
+    if (!space) return false;
+    // The key is still down from the press that opened home: it must not type spaces into the box it focused.
+    if (e.repeat) return held ? (e.preventDefault(), true) : false;
+    const a = document.activeElement;
+    if (/^(radio|checkbox)$/.test(a?.type ?? '')) return false;
+    if (typing && !boxEmpty(a)) return false; // in a text box, a space is a space
+    arm();
+    if (!typing) return false; // the short press goes on to open home, as before
+    e.preventDefault(); // already in the empty new-work box: a leading space means nothing there
+    return true;
+  }
+  // Open: the keyboard belongs to the layer, nothing reaches the screens under it.
+  // Rewriting a planned request in place: keys are typing. Enter (or Esc) ends the rewrite and gives the keyboard
+  // back to the layer, so the next Enter sends; Shift+Enter is a new line, Ctrl+Enter sends at once.
+  if (e.target?.matches?.('#voice .vt-prompt')) {
+    if (e.isComposing || e.keyCode === 229) return true;
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); confirmVoice(); }
+    else if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Escape') { e.preventDefault(); $('voice').focus({ preventScroll: true }); }
+    return true;
+  }
+  const onButton = !!e.target?.closest?.('#voice button');
+  if (e.key === 'Escape') { e.preventDefault(); cancelVoice(); return true; }
+  if (e.key === 'Tab') return true;
+  if (v.phase === 'listening') {
+    if (v.mode === 'toggle' && !e.repeat && !onButton && (space || e.key === 'Enter')) { e.preventDefault(); endVoice(); }
+    else if (space && !onButton) e.preventDefault();
+    return true;
+  }
+  if (v.phase === 'thinking') {
+    if (space && !onButton) e.preventDefault();
+    return true;
+  }
+  if (onButton && (space || e.key === 'Enter')) return true; // the focused button's own press
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (v.phase === 'review') confirmVoice();
+    else cancelVoice();
+  } else if (space) {
+    e.preventDefault();
+    if (!e.repeat) arm(); // hold again to say it again
+  }
+  return true;
+}
+
+function voiceKeyup(e) {
+  if (e.code !== 'Space') return;
+  held = false;
+  clearTimeout(timer);
+  timer = null;
+  if (store.voice.phase === 'listening' && store.voice.mode === 'hold') endVoice();
+}
+
+/** The window lost the keyboard while the key was down: its release will never arrive. */
+function voiceBlur() {
+  if (!held) return;
+  held = false;
+  clearTimeout(timer);
+  timer = null;
+  if (store.voice.phase !== 'listening' || store.voice.mode !== 'hold') return;
+  if (store.voice.live) endVoice();
+  else cancelVoice();
+}
+
+export function mountVoice() {
+  document.addEventListener('keyup', voiceKeyup);
+  window.addEventListener('blur', voiceBlur);
+}
+
+// ---- the layer itself ------------------------------------------------------------------------------------------
+
+let layer = null;
+/** What had the focus when the layer opened: it gets it back. */
+let before = null;
+
+function build() {
+  const root = $('voice');
+  const orb = voiceOrb();
+  const state = el('div', { class: 'voice-state', role: 'status' });
+  const text = el('p', { class: 'voice-text' });
+  const tasks = el('div', { class: 'voice-tasks' });
+  const bar = el('div', { class: 'voice-bar' });
+  root.replaceChildren(orb.node, el('div', { class: 'voice-say' }, text, state, tasks), bar);
+  return { root, orb, state, text, tasks, bar };
+}
+
+const cut = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
+
+/**
+ * One planned piece of work: what will be asked, and under it what it is (new work, or a reply to which work) and, for
+ * new work, where and who. All of it can be changed before it starts, the words too: they are written in a box that
+ * looks like text until it is touched.
+ */
+function taskRow(t) {
+  const reply = !!t.sessionId;
+  const to = picker({
+    ic: reply ? 'message' : 'plus',
+    label: '送り先',
+    value: t.sessionId,
+    options: [
+      { value: '', icon: 'plus', label: '新しい作業として始める' },
+      ...voiceReplyTargets(t.sessionId).map((s, i) => ({ sep: i === 0, value: s.id, icon: 'message', label: `${s.taskTitle} に返信`, short: `${cut(s.taskTitle, 24)} に返信`, sub: `${s.projectName}・${wordFor(s)}` })),
+    ],
+    onChange: (v) => setVoiceTask(t.key, { sessionId: v }),
+  });
+  const projects = store.state.projects.filter((p) => !p.pending);
+  const where = !reply && picker({ ic: 'folder', label: 'ワークスペース', value: t.projectId, options: projects.map((p) => ({ value: p.id, label: p.name, sub: p.rootPath })), onChange: (v) => setVoiceTask(t.key, { projectId: v }) });
+  const who = !reply && aiPicker({ value: { provider: t.provider, model: t.model, effort: t.effort }, onChange: (c) => setVoiceTask(t.key, c) });
+  const drop = reply ? 'この返信は送らない' : 'この作業は始めない';
+  return el('div', { class: `voice-task${reply ? ' reply' : ''}` },
+    el('textarea', { class: 'vt-prompt', rows: 1, spellcheck: 'false', 'aria-label': reply ? '送る内容' : '頼む内容', value: t.prompt, oninput: (e) => setVoicePrompt(t.key, e.target.value) }),
+    el('div', { class: 'vt-meta' }, to.node, where && where.node, who && who.node, el('span', { class: 'grow' }),
+      el('button', { type: 'button', class: 'quiet ib vt-drop', title: drop, 'aria-label': drop, onclick: () => dropVoiceTask(t.key) }, icon('x', 's'))));
+}
+
+const ib = (ic, label, onclick, cls = 'quiet ib') => el('button', { type: 'button', class: cls, title: label, 'aria-label': label, onclick }, icon(ic));
+
+/** The controls under the layer: what stops or goes back at the left, what moves on at the right end. */
+function barFor(v) {
+  const cancel = ib('x', 'やめる (Esc)', () => cancelVoice());
+  // What was heard but could not be planned can still be taken to a box and written by hand.
+  const toBox = ib('pencil', '入力欄で書き直す', () => go(voiceToBox()));
+  // Saying it again keeps what it was for: the same work's reply, or anything.
+  const again = (cls) => ib('mic', 'もう一度話す（Space 長押し）', () => beginVoice('toggle', { replyTo: v.replyTo }), cls);
+  const allReplies = v.tasks.length > 0 && v.tasks.every((t) => t.sessionId);
+  const grow = el('span', { class: 'grow' });
+  if (v.phase === 'listening') return v.mode === 'toggle' ? [cancel, grow, ib('check', '話し終える (Enter)', () => endVoice(), 'primary ib')] : [];
+  if (v.phase === 'thinking') return [cancel, grow];
+  // The plan's words are rewritten where they are shown: no trip to another box.
+  if (v.phase === 'review') return [cancel, again('quiet ib'), grow, ib('send', allReplies ? '送る (Enter)' : '始める (Enter)', () => confirmVoice(), 'primary ib')];
+  return [cancel, v.text && toBox, grow, again('ib')];
+}
+
+/** Called on every redraw of the page. */
+export function drawVoice() {
+  const v = store.voice;
+  const on = v.phase !== 'off';
+  if (!layer) {
+    if (!on) return;
+    layer = build();
+  }
+  const { root, orb } = layer;
+  const shown = document.body.dataset.voice === 'on';
+  if (on && !shown) {
+    before = document.activeElement;
+    document.body.dataset.voice = 'on';
+    for (const n of document.querySelectorAll('.app, .chat-dock')) n.inert = true;
+    root.focus({ preventScroll: true });
+  } else if (!on && shown) {
+    delete document.body.dataset.voice;
+    for (const n of document.querySelectorAll('.app, .chat-dock')) n.inert = false;
+    if (before?.isConnected && !document.activeElement?.matches?.('textarea, input')) before.focus({ preventScroll: true });
+    before = null;
+    orb.set('rest');
+  }
+  if (!on) return; // what was shown stays as it is while the layer fades out
+  root.dataset.phase = v.phase;
+  orb.set(v.phase === 'listening' ? (v.live ? 'listen' : 'wait') : v.phase === 'thinking' ? 'think' : 'rest', voiceLevel);
+
+  // One state = one icon + one word, where the next thing will appear.
+  const model = store.state?.voice?.model;
+  const fetching = model?.state === 'downloading' && v.phase === 'thinking';
+  const word = v.phase === 'listening' ? (v.live ? '聞いています' : '')
+    : v.phase === 'thinking' ? (fetching ? `音声モデルを準備中 ${Math.round((model.progress ?? 0) * 100)}%` : '考え中')
+    : v.phase === 'error' ? v.error : '';
+  const sig = `${v.phase}|${word}`;
+  if (layer.state.dataset.sig !== sig) {
+    layer.state.dataset.sig = sig;
+    layer.state.className = `voice-state${v.phase === 'thinking' ? ' thinking' : ''}${v.phase === 'error' ? ' bad' : ''}`;
+    put(layer.state, word && [v.phase === 'listening' ? icon('mic', 's') : v.phase === 'error' ? icon('error', 's red') : fetching ? icon('running', 's spin') : null, el('span', {}, word)]);
+  }
+  // What was heard shows while it is being read and when it could not be used; the plan replaces it.
+  const heard = v.phase === 'thinking' || v.phase === 'error' ? v.text : '';
+  if (layer.text.textContent !== heard) layer.text.textContent = heard;
+  layer.text.hidden = !heard;
+  sync(layer.tasks, v.phase === 'review' ? v.tasks : [], (t) => t.key, (t) => `${t.key}|${t.sessionId}`, taskRow);
+  const barSig = `${v.phase}|${v.mode}|${!!v.text}|${v.replyTo}|${v.tasks.map((t) => !!t.sessionId).join()}`;
+  if (layer.bar.dataset.sig !== barSig) {
+    layer.bar.dataset.sig = barSig;
+    put(layer.bar, barFor(v));
+  }
+}

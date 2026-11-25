@@ -1,9 +1,19 @@
 // Pure fold: (state, event) -> state. No I/O, no clocks other than the event's own timestamp.
 import type { StoredEvent } from './events.ts';
 import type { AgentSession, AttentionItem, CoreState, HumanStep } from './types.ts';
+import { defaultKnowledge } from './knowledge.ts';
 
 export function emptyState(): CoreState {
-  return { generation: 0, settings: { maxConcurrent: 8, minFreeMemoryMB: 0, confirmCommands: true, preamble: '', sideChat: { provider: 'claude', model: 'sonnet', effort: 'low' } }, projects: new Map(), tasks: new Map(), sessions: new Map(), items: new Map() };
+  return {
+    generation: 0,
+    settings: { maxConcurrent: 8, minFreeMemoryMB: 0, confirmCommands: true, autoResumeOnLimit: true, preamble: '', sideChat: { provider: 'claude', model: 'sonnet', effort: 'low' }, knowledge: { capture: true, inject: true }, voice: { plannerAi: { provider: 'claude', model: 'haiku', effort: '' }, confirm: true } },
+    projects: new Map(),
+    tasks: new Map(),
+    sessions: new Map(),
+    items: new Map(),
+    knowledge: defaultKnowledge(),
+    usageLimits: new Map(),
+  };
 }
 
 const TURN_ENDED = new Set(['turn_finished', 'interrupted', 'error']);
@@ -67,7 +77,7 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
       return state;
     }
     case 'project.added':
-      state.projects.set(e.projectId, { id: e.projectId, name: e.name, rootPath: e.rootPath, createdAt: at, useWorktree: true, preamble: '' });
+      state.projects.set(e.projectId, { id: e.projectId, name: e.name, rootPath: e.rootPath, createdAt: at, useWorktree: true, preamble: '', approvalMode: 'auto', captureKnowledge: true, description: '' });
       return state;
     case 'project.renamed': {
       const p = state.projects.get(e.projectId);
@@ -78,6 +88,9 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
       const p = state.projects.get(e.projectId);
       if (p && e.useWorktree !== undefined) p.useWorktree = e.useWorktree;
       if (p && e.preamble !== undefined) p.preamble = e.preamble;
+      if (p && e.approvalMode !== undefined) p.approvalMode = e.approvalMode;
+      if (p && e.captureKnowledge !== undefined) p.captureKnowledge = e.captureKnowledge;
+      if (p && e.description !== undefined) p.description = e.description;
       return state;
     }
     case 'task.created':
@@ -173,6 +186,7 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
       const t = state.tasks.get(e.taskId);
       if (t) {
         t.acceptedAt = e.accepted ? at : null;
+        if (e.accepted) for (const s of state.sessions.values()) if (s.taskId === t.id) s.usageResume = null;
         // Calling the work done answers whatever its last reply was asking.
         if (e.accepted) for (const s of state.sessions.values()) if (s.taskId === t.id) expirePassive(state, s.id, '作業を完了にしました');
       }
@@ -180,6 +194,76 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
     }
     case 'settings.changed':
       Object.assign(state.settings, e.settings);
+      if (e.settings.autoResumeOnLimit === false) for (const s of state.sessions.values()) {
+        if (s.usageResume) s.usageResumeCancelled = true;
+        s.usageResume = null;
+      }
+      return state;
+    case 'usage.limits_updated':
+      state.usageLimits.set(e.provider, e.limits);
+      return state;
+    case 'knowledge.domain_set': {
+      const k = state.knowledge;
+      const d = k.domains.get(e.domainId) ?? { id: e.domainId, name: '', description: '', always: false, order: Math.max(-1, ...[...k.domains.values()].map((x) => x.order)) + 1 };
+      if (e.name !== undefined) d.name = e.name;
+      if (e.description !== undefined) d.description = e.description;
+      if (e.always !== undefined) d.always = e.always;
+      if (e.order !== undefined) d.order = e.order;
+      k.domains.set(d.id, d);
+      return state;
+    }
+    case 'knowledge.domain_removed': {
+      const k = state.knowledge;
+      k.domains.delete(e.domainId);
+      for (const entry of [...k.entries.values()]) {
+        if (entry.domainId !== e.domainId) continue;
+        if (e.moveTo && k.domains.has(e.moveTo)) {
+          entry.domainId = e.moveTo;
+          entry.updatedAt = at;
+        } else k.entries.delete(entry.id);
+      }
+      return state;
+    }
+    case 'knowledge.entry_added':
+      state.knowledge.entries.set(e.entryId, {
+        id: e.entryId,
+        domainId: e.domainId,
+        // Old events kept the reason apart; it was sent after the text, so it stays there.
+        text: e.why ? `${e.text}（理由: ${e.why}）` : e.text,
+        sessionId: e.sessionId,
+        scope: e.scope,
+        hits: 1,
+        createdAt: at,
+        updatedAt: at,
+        seen: e.seen,
+      });
+      return state;
+    case 'knowledge.entry_updated': {
+      const entry = state.knowledge.entries.get(e.entryId);
+      if (!entry) return state;
+      if (e.text !== undefined) entry.text = e.text;
+      if (e.domainId !== undefined) entry.domainId = e.domainId;
+      if (e.scope !== undefined) entry.scope = e.scope;
+      entry.updatedAt = at;
+      return state;
+    }
+    case 'knowledge.entry_removed':
+      state.knowledge.entries.delete(e.entryId);
+      return state;
+    case 'knowledge.prompts_set':
+      for (const id of e.remove) state.knowledge.entries.delete(id);
+      for (const entry of e.entries) state.knowledge.entries.set(entry.id, { ...entry });
+      return state;
+    case 'knowledge.entry_reinforced': {
+      const entry = state.knowledge.entries.get(e.entryId);
+      if (!entry) return state;
+      entry.hits += 1;
+      if (e.sessionId) entry.sessionId = e.sessionId;
+      entry.updatedAt = at;
+      return state;
+    }
+    case 'knowledge.seen':
+      for (const entry of state.knowledge.entries.values()) entry.seen = true;
       return state;
     case 'session.created': {
       const s: AgentSession = {
@@ -207,6 +291,8 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
         archived: false,
         background: null,
         awaitingBackground: false,
+        usageResume: null,
+        usageResumeCancelled: false,
       };
       state.sessions.set(s.id, s);
       return state;
@@ -216,6 +302,11 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
       if (!s) return state;
       const before = s.lifecycle;
       Object.assign(s, e.patch);
+      if (e.patch.usageResume === null) s.usageResumeCancelled = e.patch.usageResumeCancelled ?? true;
+      if (e.patch.lifecycle === 'queued') s.usageResumeCancelled = false;
+      // A normal reply has moved past the interrupted work. Queued automatic resumes retain their appointment
+      // until actually started, so restarting the app while they wait for a slot cannot lose them.
+      if (e.patch.lifecycle === 'turn_finished' && s.lastTurnOutcome === 'completed') s.usageResume = null;
       s.updatedAt = at;
       if (s.lifecycle !== before) {
         s.lifecycleSince = at;
@@ -336,6 +427,7 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
       if (s) {
         s.archived = e.archived;
         if (e.archived) {
+          s.usageResume = null;
           s.unread = false;
           expirePassive(state, s.id, '作業を片付けました');
         }

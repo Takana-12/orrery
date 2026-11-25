@@ -11,6 +11,15 @@ export interface Project {
   useWorktree: boolean;
   /** Put at the head of the first message of every new session in this project (after the app-wide one). Empty = none. */
   preamble: string;
+  /** How new work in this project handles permission requests unless the new-work screen says otherwise. Default 'auto'. */
+  approvalMode: ApprovalMode;
+  /** Whether standing preferences are picked up from what the human says in this project's work. Default on. */
+  captureKnowledge: boolean;
+  /**
+   * What this workspace is, in the human's words (what the folder holds, what it is for). Read by the AI that decides
+   * which workspace a spoken request belongs to. Empty = not written; the AI then has only the name, folder and recent work.
+   */
+  description: string;
 }
 
 /** What the human wants achieved. Completion is judged against this, not against "the agent stopped talking". */
@@ -113,10 +122,77 @@ export interface Settings {
   minFreeMemoryMB: number;
   /** Ask before running a command the agent asked the human to run. Turned off from the confirmation itself. */
   confirmCommands: boolean;
+  /** Resume work stopped by a plan limit one minute after its reset. */
+  autoResumeOnLimit: boolean;
   /** Put at the head of the first message of every new session, whatever the project or agent. Empty = nothing. */
   preamble: string;
   /** What a new side chat talks to unless the human picks something else in it. */
   sideChat: SideChatModel;
+  /** The human's standing preferences (こだわり): whether to pick them up from instructions, and whether to send them. */
+  knowledge: KnowledgeSettings;
+  /** Voice input (hold Space): which AI turns what was said into work, and whether the human looks before it starts. */
+  voice: VoiceSettings;
+}
+
+export interface VoiceSettings {
+  /** AI that reads the spoken request and decides the workspace, agent and model of each piece of work. */
+  plannerAi: SideChatModel;
+  /** Show what was understood and wait for the human's go before starting. Off: the work starts by itself. */
+  confirm: boolean;
+  /** Which speech recogniser reads the recording (an id of the server's speech models). Left out: the default. */
+  recognizer?: string;
+  /**
+   * Words the human uses that a recogniser cannot know (names of products, people, tools), one per line. What was
+   * heard is written with these spellings ("オーラリー" -> "Orrery").
+   */
+  words?: string;
+}
+
+export interface KnowledgeSettings {
+  /** Read the human's instructions and corrections for standing preferences, and record them by themselves. */
+  capture: boolean;
+  /** Put the preferences that bear on new work at the head of its first message (after the default messages). */
+  inject: boolean;
+  /** AI used to record preferences from instructions. Absent in older settings: Claude Haiku. */
+  captureAi?: SideChatModel;
+  /** AI used in the dedicated preference chat. Absent in older settings: Claude Sonnet. */
+  tuneAi?: SideChatModel;
+}
+
+/**
+ * One area of the human's preferences (UI, writing, ...). New work gets only the areas that bear on it, so each area's
+ * description says what it is about: that is what the choice is made by.
+ */
+export interface KnowledgeDomain {
+  id: string;
+  name: string;
+  description: string;
+  /** Sent with every new piece of work, whatever it is about. */
+  always: boolean;
+  order: number;
+}
+
+/** One section's standing prompt. Exactly one per domain; legacy entry events remain readable. */
+export interface KnowledgeEntry {
+  id: string;
+  domainId: string;
+  /** The rule itself, exactly as it is sent (a reason, when it matters, is part of it). The human may rewrite it. */
+  text: string;
+  /** The work it was read from. */
+  sessionId: string | null;
+  /** 'all': every project. Otherwise the one project it holds for. */
+  scope: string;
+  /** How many times the same preference came up (1 when first recorded). */
+  hits: number;
+  createdAt: number;
+  updatedAt: number;
+  /** The human has looked at it since it was recorded (by hand-written ones always). */
+  seen: boolean;
+}
+
+export interface KnowledgeState {
+  domains: Map<string, KnowledgeDomain>;
+  entries: Map<string, KnowledgeEntry>;
 }
 
 /** One AI for the side chat: the agent, its model ('' = the agent's own default) and how hard it thinks ('' = default). */
@@ -161,6 +237,9 @@ export type SessionLifecycle =
  *          (Claude Code "auto" mode, Codex "auto_review")
  */
 export type ApprovalMode = 'ask' | 'edits' | 'auto';
+export const APPROVAL_MODES: readonly ApprovalMode[] = ['ask', 'edits', 'auto'];
+/** The longest description of a workspace that is kept (Project.description). */
+export const PROJECT_DESCRIPTION_MAX = 2000;
 
 export type ProcessState = 'not_started' | 'alive' | 'stopping' | 'stopped' | 'crashed';
 export type Resumability = 'resumable' | 'unknown' | 'unrecoverable';
@@ -184,8 +263,9 @@ export interface AgentSession {
   lastText: string | null;
   lastTurnOutcome: 'completed' | 'interrupted' | 'failed' | null;
   error: string | null;
-  /** What the human chose when starting it; reused when the session is resumed in a new process. */
+  /** Model chosen when starting it; reused when the session is resumed in a new process. */
   requestedModel: string | null;
+  /** Effort most recently submitted by the human; reused by later messages and resumed processes. */
   effort: string | null;
   approvalMode: ApprovalMode;
   /** When the current lifecycle state began (for "running for 4 min"). */
@@ -201,6 +281,10 @@ export interface AgentSession {
    * reports back. Shown as still running: this is not a finished turn.
    */
   awaitingBackground: boolean;
+  /** Recorded when a limit hits active work. Null reset: wait until the provider supplies a time. */
+  usageResume: { model: string | null; resetsAt: number | null } | null;
+  /** The human cancelled this turn's automatic resume. Cleared when a new message enters the queue. */
+  usageResumeCancelled: boolean;
 }
 
 export interface QuestionOption {
@@ -298,4 +382,7 @@ export interface CoreState {
   tasks: Map<string, Task>;
   sessions: Map<string, AgentSession>;
   items: Map<string, AttentionItem>;
+  knowledge: KnowledgeState;
+  /** Last reported windows, including model-specific ones; kept across app restarts. */
+  usageLimits: Map<ProviderId, import('./provider.ts').UsageLimit[]>;
 }

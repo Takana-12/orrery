@@ -16,6 +16,9 @@ function setup(reading: CommandReading | null) {
     generateTitle: async () => null,
     readFinalReply: async () => null,
     clarifyChecks: async () => null,
+    extractPreferences: async () => null,
+    routeKnowledge: async () => null,
+    tunePreferences: async () => null,
     readCommandResult: async (x) => (seen.push({ output: x.output, laterSteps: x.laterSteps }), reading),
   });
   const accepted: string[] = [];

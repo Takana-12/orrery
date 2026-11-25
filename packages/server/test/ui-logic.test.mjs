@@ -5,9 +5,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { store } from '../public/js/logic/store.js';
 import { composerChoice, ensureModels, sessionEfforts } from '../public/js/logic/ai.js';
-import { act, addProjectFromFolder, renameProject, runStep, sendAnswer, sendMessage, setProjectApproval, setProjectDescription, setProjectPreamble, setProjectWorktree, setStep, shutdownApp, startAppUpdate } from '../public/js/logic/actions.js';
+import { act, startWork, addProjectFromFolder, renameProject, runStep, sendAnswer, sendMessage, setProjectApproval, setProjectDescription, setProjectPreamble, setProjectWorktree, setStep, shutdownApp, startAppUpdate, checkAppUpdate } from '../public/js/logic/actions.js';
 import { fullStamp, leftTone, stamp } from '../public/js/logic/format.js';
-import { ARCHIVE_FOLD, advanceAccordion, archiveModel, busyCount, checkGroups, inInbox, inboxModel, inboxStepIndexes, isOpen, limitsModel, railModel, sessionModel } from '../public/js/logic/selectors.js';
+import { ARCHIVE_FOLD, advanceAccordion, archiveModel, busyCount, checkGroups, inInbox, inboxModel, inboxStepIndexes, isOpen, limitsModel, newVersionText, railModel, sessionModel } from '../public/js/logic/selectors.js';
 import { parseRoute, routeKey } from '../public/js/logic/route.js';
 import { looksLikeCommand, toolSummary } from '../public/js/logic/text.js';
 import { inline, parseMarkdown, plainText } from '../public/js/logic/markdown.js';
@@ -508,6 +508,32 @@ test('the update button shows at once and is taken back if the update cannot be 
   assert.match(store.notices.at(-1).text, /更新できませんでした/);
 });
 
+test('checking GitHub for a newer version shows at once and says so when it cannot be reached', async () => {
+  store.notices.length = 0;
+  let calls = server(200, { remote: { behind: 0, error: null } });
+  let pending = checkAppUpdate();
+  assert.equal(store.checkingUpdate, true, 'shown before the server has answered');
+  await pending;
+  assert.equal(calls[0].url, '/api/app-update/check');
+  assert.equal(store.checkingUpdate, false);
+  assert.equal(store.notices.length, 0);
+  server(200, { remote: { behind: 0, error: 'Could not resolve host: github.com' } });
+  await checkAppUpdate();
+  assert.match(store.notices.at(-1).text, /確認できませんでした: Could not resolve host/);
+  server(500);
+  await checkAppUpdate();
+  assert.equal(store.checkingUpdate, false);
+  assert.match(store.notices.at(-1).text, /確認できませんでした/);
+});
+
+test('a newer version on GitHub is put in words, and says when it will not be brought in by itself', () => {
+  assert.equal(newVersionText(null), null);
+  assert.equal(newVersionText({ behind: 0 }), null);
+  assert.equal(newVersionText({ behind: 1, subject: 'v0.5.0 の更新を反映', canPull: true }), 'GitHub に新しい版があります：「v0.5.0 の更新を反映」');
+  assert.equal(newVersionText({ behind: 3, subject: 'v0.5.0 の更新を反映', canPull: true }), 'GitHub に新しい版があります：「v0.5.0 の更新を反映」ほか、3件の変更');
+  assert.match(newVersionText({ behind: 2, subject: '', canPull: false }), /2件の変更.*自動では取り込みません/);
+});
+
 test('the inbox shows a step that waits on an earlier one only once that one is done', () => {
   const step = (title, extra = {}) => ({ title, detail: null, command: null, after: null, done: false, ...extra });
   const steps = [
@@ -700,4 +726,48 @@ test('the こだわり chat: the message shows at once with the reading under wa
   assert.equal(tuneModel(store.state).messages.length, 0, 'taken back');
   assert.equal(store.notices.length, 1);
   assert.deepEqual(parseRoute('#/knowledge/tune'), { view: 'knowledge-tune' });
+});
+
+test('new work in several workspaces: folders not yet registered are registered first, the main one goes first', async () => {
+  reset(snapshot([]));
+  store.sending.length = 0;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const body = init?.body ? JSON.parse(init.body) : null;
+    calls.push({ url: String(url), body });
+    const answer = String(url).endsWith('/api/projects') ? { projectId: 'p-new' } : { sessionId: 's1' };
+    return new Response(JSON.stringify({ ok: true, ...answer }), { status: 200 });
+  };
+  let where = null;
+  await startWork({ text: 'つなげて', suffix: '', provider: 'claude', model: '', effort: '', approvalMode: 'auto', planMode: false, workspaces: ['p1', 'path:C:\new', 'p2', 'p1'], projectName: 'A・new・B' }, { keepDraft: true, onProject: (id, extra) => { where = [id, extra]; } });
+  assert.deepEqual(calls.map((c) => c.url.replace(/^.*\/api/, '/api')), ['/api/projects', '/api/sessions']);
+  assert.equal(calls[0].body.path, 'C:\new');
+  assert.equal(calls[1].body.projectId, 'p1');
+  assert.deepEqual(calls[1].body.extraProjectIds, ['p-new', 'p2'], 'each once, in the order ticked');
+  assert.deepEqual(where, ['p1', ['p-new', 'p2']]);
+  calls.length = 0;
+  await startWork({ text: 'ひとつ', suffix: '', provider: 'claude', model: '', effort: '', approvalMode: 'auto', planMode: false, projectId: 'p1', folder: '', projectName: 'A' }, { keepDraft: true });
+  assert.equal(calls[0].body.projectId, 'p1');
+  assert.equal('extraProjectIds' in calls[0].body, false, 'one workspace sends what it always did');
+  store.sending.length = 0;
+});
+
+test('only the subscriptions the human uses are offered and shown; turning one off shows at once', async () => {
+  const { usableAgents, usableChoice } = await import('../public/js/logic/ai.js');
+  const { setSettings } = await import('../public/js/logic/actions.js');
+  reset(snapshot([]));
+  assert.deepEqual(usableAgents(), ['claude', 'codex'], 'settings from before the choice: all of them');
+  const calls = server(200);
+  const done = setSettings({ providers: ['codex'] });
+  assert.deepEqual(usableAgents(), ['codex'], 'shown before the server answers');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(calls.at(-1).body, { providers: ['codex'] });
+  await done;
+  assert.deepEqual(limitsModel({}, usableAgents()).map((x) => x.provider), ['codex']);
+  assert.equal(usableChoice({ provider: 'claude', model: 'opus', effort: 'high' }).provider, 'codex', 'a choice of an agent not used moves to one that is');
+  const kept = { provider: 'codex', model: '', effort: '' };
+  assert.equal(usableChoice(kept), kept);
+  server(500);
+  await setSettings({ providers: ['claude'] });
+  assert.deepEqual(usableAgents(), ['codex'], 'refused: back to what it was before this change');
 });

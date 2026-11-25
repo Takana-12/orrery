@@ -11,7 +11,14 @@ export interface AppUpdater {
   update(): Promise<void>;
   /** Restart without rebuilding. */
   restart(): Promise<void>;
+  /** Ask GitHub now whether a newer version is there (also done by itself at start and every hour). */
+  check?(): Promise<unknown>;
+  /** A newer version waiting on GitHub, or null. Sent with every state so each screen can show it. */
+  newVersion?(): unknown;
 }
+
+/** The state every screen is drawn from, plus whether the app itself has a newer version on GitHub. */
+export const stateOf = (app: App, appUpdate?: AppUpdater) => ({ ...app.snapshot(), newVersion: appUpdate?.newVersion?.() ?? null });
 
 export interface RouteContext {
   app: App;
@@ -54,7 +61,7 @@ const provider = (v: string | undefined) => v as 'claude' | 'codex';
 
 export const ROUTES: Route[] = [
   // ---- reading ----
-  get('/api/state', ({ app }) => app.snapshot()),
+  get('/api/state', ({ app, appUpdate }) => stateOf(app, appUpdate)),
   get(`/api/sessions/${ID}/transcript`, ({ app, params, query }) => {
     const before = query.get('before');
     const after = query.get('after');
@@ -88,6 +95,10 @@ export const ROUTES: Route[] = [
   post(`/api/knowledge/entries/${ID}/remove`, ({ app, params }) => (app.removeKnowledgeEntry(params[0]!), OK)),
   post('/api/knowledge/seen', ({ app }) => (app.markKnowledgeSeen(), OK)),
   post('/api/knowledge/tune', ({ app, body }) => (app.sendKnowledgeTune(body?.text), OK)),
+  post('/api/app-update/check', async ({ appUpdate }) => {
+    if (!appUpdate?.check) throw new HttpError(400, 'コンソールから起動しているため、ここからは確認できません。');
+    return appUpdate.check();
+  }),
   post('/api/app-update/(update|restart)', async ({ appUpdate, params }) => {
     if (!appUpdate) throw new HttpError(400, 'コンソールから起動しているため、ここからは更新できません。');
     try {

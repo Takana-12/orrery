@@ -1,4 +1,5 @@
 import { loadUsage } from '../../logic/actions.js';
+import { usableAgents } from '../../logic/ai.js';
 import { clock, leftTone, num, until } from '../../logic/format.js';
 import { store } from '../../logic/store.js';
 import { $, el, put } from '../dom.js';
@@ -13,9 +14,11 @@ export function usageView() {
   let data = null;
   let timer = null;
   const paint = () => {
-    put(box, ['claude', 'codex'].map((p) => {
+    // Only the subscriptions the human uses (設定 → 使うAI).
+    put(box, usableAgents().map((p) => {
       const a = store.state.auth[p];
       const u = data?.[p];
+      if (!a) return null;
       return el('section', { class: `svc ${p}` },
         brandMark(p),
         el('h2', {}, PROVIDER[p],
@@ -47,5 +50,5 @@ export function usageView() {
   load();
   timer = setInterval(() => { if (route().view === 'usage') load(); else clearInterval(timer); }, 60000);
   let authSig = '';
-  return { key: 'usage', update() { const s2 = JSON.stringify(store.state.auth); if (s2 !== authSig) { authSig = s2; paint(); } } };
+  return { key: 'usage', update() { const s2 = JSON.stringify([store.state.auth, usableAgents()]); if (s2 !== authSig) { authSig = s2; paint(); } } };
 }

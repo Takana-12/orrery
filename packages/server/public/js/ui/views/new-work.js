@@ -1,7 +1,7 @@
 // New work: the box at the foot of the home screen. What to ask, and under it a bar of chips (where, who, which model,
 // how much say you keep).
 import { pickFolder, registerFolder, startWork } from '../../logic/actions.js';
-import { defaultChoice, ensureModels, stillValid } from '../../logic/ai.js';
+import { defaultChoice, ensureModels, stillValid, usableAgents, usableChoice } from '../../logic/ai.js';
 import { store } from '../../logic/store.js';
 import { beginVoice } from '../../logic/voice.js';
 import { aiPicker } from '../ai-picker.js';
@@ -9,7 +9,7 @@ import { attachments } from '../attachments.js';
 import { autoGrow, el, put } from '../dom.js';
 import { icon } from '../icons.js';
 import { loginNotice } from '../login-notice.js';
-import { picker } from '../menu.js';
+import { multiPicker, picker } from '../menu.js';
 import { go, route, ui } from '../shell.js';
 import { APPROVAL_OPTS } from '../vocabulary.js';
 
@@ -27,25 +27,44 @@ export function newWorkForm() {
   const authSlot = el('div', {});
   const start = el('button', { class: 'primary ib', type: 'submit', title: '始める (Ctrl+Enter)', 'aria-label': '始める' }, icon('send'));
 
-  // A folder picked in Explorer is listed and chosen at once as "path:<folder>", and becomes its project's own
-  // entry as soon as the server's project list includes it.
-  let picked = null; // { path, projectId? }
+  // Where: any number of workspaces, ticked in the chip's menu — ticking another adds it, ticking one again takes it
+  // off. The first ticked is the main one: the agent starts in its folder and its settings (approvals, worktree, the
+  // AI last used there) apply; the others are handed to the agent as folders it also works in.
+  // A folder picked in Explorer is ticked at once as "path:<folder>", and becomes its project's own entry as soon as
+  // the server's project list includes it.
+  let picked = []; // [{ path, projectId? }]
   const baseName = (path) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
   const folderOf = (v) => (v.startsWith('path:') ? v.slice(5) : '');
+  const nameOf = (v) => store.state.projects.find((p) => p.id === v)?.name ?? (folderOf(v) ? baseName(folderOf(v)) : '');
   const projectOptions = () => [
     ...store.state.projects.map((p) => ({ value: p.id, label: p.name, sub: p.rootPath })),
-    ...(picked ? [{ value: `path:${picked.path}`, label: baseName(picked.path), sub: picked.path }] : []),
-    { value: '', label: '別のフォルダを開く', short: '別のフォルダ', icon: 'plus', sep: store.state.projects.length > 0 || !!picked },
+    ...picked.map((x) => ({ value: `path:${x.path}`, label: baseName(x.path), sub: x.path })),
   ];
-  let current = projects.some((p) => p.id === remember('crProject')) ? remember('crProject') : (projects[0]?.id ?? '');
-  const choose = (v) => {
-    if (v !== current) store.newDraft.planMode = false; // plan-first is for one request in one workspace
-    current = v; project.set(v, projectOptions()); useWorkspaceChoice(v); syncForm();
+  const listed = (v) => store.state.projects.some((p) => p.id === v) || picked.some((x) => `path:${x.path}` === v);
+  /** What was used last (main first); older versions remembered only one. */
+  const lastUsed = () => {
+    try { const a = JSON.parse(remember('crProjects') ?? 'null'); if (Array.isArray(a)) return a; } catch {}
+    return [remember('crProject')];
   };
-  // "別のフォルダを開く" goes straight to Explorer; until a folder is chosen the chip keeps showing the one it had.
-  const project = picker({
-    ic: 'folder', label: 'プロジェクト', value: current, options: projectOptions(),
-    onChange: (v) => { if (v === '') { project.set(current); openFolder(); } else choose(v); },
+  let chosen = (store.newDraft.workspaces ?? lastUsed()).filter((v) => typeof v === 'string' && listed(v));
+  if (!chosen.length && !store.newDraft.workspaces && projects[0]) chosen = [projects[0].id];
+  const main = () => chosen[0] ?? '';
+  const choose = (list) => {
+    const was = main();
+    chosen = [...new Set(list)];
+    store.newDraft.workspaces = [...chosen];
+    project.set(chosen, projectOptions());
+    if (main() !== was) {
+      store.newDraft.planMode = false; // plan-first is for one request in one workspace
+      if (main()) useWorkspaceChoice(main());
+    }
+    syncForm();
+  };
+  // "別のフォルダを開く" goes straight to Explorer; a folder chosen there is ticked alongside the others.
+  const project = multiPicker({
+    ic: 'folder', label: 'ワークスペース', value: chosen, options: projectOptions(),
+    onChange: (list) => choose(list),
+    actions: [{ label: '別のフォルダを開く', icon: 'plus', onpick: () => openFolder() }],
   });
   let picking = false;
   async function openFolder() {
@@ -58,34 +77,41 @@ export function newWorkForm() {
     const path = r.body.path;
     if (!path) return; // cancelled
     const known = store.state.projects.find((p) => p.rootPath.toLowerCase() === path.toLowerCase());
-    if (known) return choose(known.id);
+    if (known) return choose([...chosen, known.id]);
+    const again = picked.find((x) => x.path.toLowerCase() === path.toLowerCase());
+    if (again) return choose([...chosen, `path:${again.path}`]);
     const mine = { path };
-    picked = mine;
-    choose(`path:${path}`);
+    const v = `path:${path}`;
+    picked.push(mine);
+    choose([...chosen, v]);
     const reg = await registerFolder(path);
-    if (picked !== mine) return;
+    if (!picked.includes(mine)) return;
     if (reg.status !== 200) {
-      picked = null;
+      picked = picked.filter((x) => x !== mine);
       err.textContent = reg.body.error || 'フォルダを登録できませんでした';
-      return choose(current === `path:${path}` ? (store.state.projects[0]?.id ?? '') : current);
+      return choose(chosen.filter((x) => x !== v));
     }
     mine.projectId = reg.body.projectId;
-    remember('crProject', mine.projectId);
     refreshProjects();
   }
-  /** The server's project list may have changed: list it, and swap a picked folder for its project once it is there. */
+  /**
+   * The server's project list may have changed: list it, swap a picked folder for its project once it is there, and
+   * untick a workspace that is gone.
+   */
   const refreshProjects = () => {
-    if (picked?.projectId && store.state.projects.some((p) => p.id === picked.projectId)) {
-      const was = `path:${picked.path}`;
-      const id = picked.projectId;
-      picked = null;
-      if (current === was) current = id;
+    for (const x of picked.filter((y) => y.projectId && store.state.projects.some((p) => p.id === y.projectId))) {
+      picked = picked.filter((y) => y !== x);
+      chosen = chosen.map((v) => (v === `path:${x.path}` ? x.projectId : v));
     }
-    project.set(current, projectOptions());
+    const was = main();
+    chosen = [...new Set(chosen)].filter(listed);
+    if (store.newDraft.workspaces) store.newDraft.workspaces = [...chosen];
+    project.set(chosen, projectOptions());
+    if (main() !== was && main()) useWorkspaceChoice(main());
   };
   const envCount = el('span', { class: 'v' });
   const envLink = el('button', { type: 'button', class: 'chip', title: 'このプロジェクトの環境変数', 'aria-label': '環境変数' }, icon('key', 's'), envCount);
-  envLink.addEventListener('click', () => project.get() && go(`#/env/${project.get()}`));
+  envLink.addEventListener('click', () => main() && go(`#/env/${main()}`));
 
   // Who answers: one chip for the agent, its model and how hard it thinks (ai-picker.js). Each agent remembers the
   // model last used with it; the first time, it is the agent's recommended model at a middle effort.
@@ -101,11 +127,12 @@ export function newWorkForm() {
     if (!v) return null;
     try {
       const c = JSON.parse(remember(wsKey(v)) ?? 'null');
-      return c && (c.provider === 'claude' || c.provider === 'codex') ? { provider: c.provider, model: c.model ?? '', effort: c.effort ?? '' } : null;
+      // An agent the human no longer uses (設定 → 使うAI) is not brought back.
+      return c && usableAgents().includes(c.provider) ? { provider: c.provider, model: c.model ?? '', effort: c.effort ?? '' } : null;
     } catch { return null; }
   };
-  const fromWs = wsChoice(current);
-  const firstProv = fromWs?.provider ?? (remember('crProvider') === 'codex' ? 'codex' : 'claude');
+  const fromWs = wsChoice(main());
+  const firstProv = fromWs?.provider ?? (usableAgents().includes(remember('crProvider')) ? remember('crProvider') : usableAgents()[0]);
   const initial = fromWs ?? savedChoice(firstProv) ?? { provider: firstProv, model: '', effort: '' };
   let shownProv = firstProv;
   const ai = aiPicker({
@@ -113,7 +140,7 @@ export function newWorkForm() {
     recall: (prov) => stillValid(savedChoice(prov) ?? defaultChoice(prov), prov),
     onChange: (c) => {
       remember(`crChoice:${c.provider}`, JSON.stringify({ model: c.model, effort: c.effort }));
-      if (current) remember(wsKey(current), JSON.stringify(c));
+      if (main()) remember(wsKey(main()), JSON.stringify(c));
       if (c.provider === shownProv) return;
       shownProv = c.provider;
       remember('crProvider', c.provider);
@@ -139,7 +166,7 @@ export function newWorkForm() {
       syncForm();
     };
     apply(); // at once, then again once the agent's model list is known (stillValid may then correct it)
-    ensureModels(c.provider).then(() => { if (current === v) apply(); });
+    ensureModels(c.provider).then(() => { if (main() === v) apply(); });
   }
   const provider = { get: () => ai.get().provider };
 
@@ -147,7 +174,7 @@ export function newWorkForm() {
   // Approvals: start as the project's own setting (settings screen; a folder not yet a project: the agent's review),
   // can be switched for this one piece of work. A mode this agent does not offer becomes "ask every time".
   const approvalDefault = (prov) => {
-    const want = store.state.projects.find((x) => x.id === project.get())?.approvalMode ?? 'auto';
+    const want = store.state.projects.find((x) => x.id === main())?.approvalMode ?? 'auto';
     return approvalFor(prov).some((o) => o.value === want) ? want : 'ask';
   };
   let apFor = '';
@@ -175,17 +202,17 @@ export function newWorkForm() {
   const syncForm = () => {
     const prov = provider.get();
     const apDefault = approvalDefault(prov);
-    if (apFor !== `${project.get()}|${prov}|${apDefault}`) { apFor = `${project.get()}|${prov}|${apDefault}`; approval.set(apDefault, approvalFor(prov)); }
+    if (apFor !== `${main()}|${prov}|${apDefault}`) { apFor = `${main()}|${prov}|${apDefault}`; approval.set(apDefault, approvalFor(prov)); }
     policy.node.hidden = prov !== 'codex' || approval.get() === 'auto';
-    const p = store.state.projects.find((x) => x.id === project.get());
-    // Name the workspace in the box itself, so a request is not typed into the wrong one by mistake.
-    const where = p?.name ?? (folderOf(project.get()) ? baseName(folderOf(project.get())) : '');
+    const p = store.state.projects.find((x) => x.id === main());
+    // Name the workspaces in the box itself, so a request is not typed into the wrong one by mistake.
+    const where = chosen.map(nameOf).filter(Boolean).join('・');
     prompt.placeholder = where ? `${where}で何をしますか？` : 'ワークスペースを選びましょう';
     envLink.hidden = !p;
     envCount.textContent = p?.envCount ? String(p.envCount) : '';
     const wtDefault = p?.useWorktree !== false;
     plan.setAttribute('aria-pressed', String(store.newDraft.planMode));
-    if (wtFor !== `${project.get()}|${wtDefault}`) { wtFor = `${project.get()}|${wtDefault}`; wt.setAttribute('aria-pressed', String(wtDefault)); paintWt(); }
+    if (wtFor !== `${main()}|${wtDefault}`) { wtFor = `${main()}|${wtDefault}`; wt.setAttribute('aria-pressed', String(wtDefault)); paintWt(); }
     const out = store.state.auth[prov].loggedIn === false;
     start.disabled = out;
     const sig = `${prov}|${JSON.stringify(store.state.auth[prov])}`;
@@ -206,7 +233,7 @@ export function newWorkForm() {
     if (start.disabled) return;
     if (!att.ready()) return void (err.textContent = '添付の保存が終わるまでお待ちください');
     if (!prompt.value.trim()) return void (err.textContent = '頼むことを書いてください');
-    if (!project.get()) return void (err.textContent = 'フォルダを選んでください');
+    if (!chosen.length) return void (err.textContent = 'ワークスペースを選んでください');
     err.textContent = '';
     startWork({
       text: prompt.value,
@@ -218,14 +245,13 @@ export function newWorkForm() {
       planMode: store.newDraft.planMode,
       worktree: wt.getAttribute('aria-pressed') === 'true',
       codexPolicy: policy.get(),
-      projectId: folderOf(project.get()) ? '' : project.get(),
-      folder: folderOf(project.get()),
-      projectName: store.state.projects.find((x) => x.id === project.get())?.name ?? folderOf(project.get()).split(/[\\/]/).filter(Boolean).pop() ?? '',
+      workspaces: [...chosen],
+      projectName: chosen.map(nameOf).filter(Boolean).join('・'),
     }, {
       // Shown in the rail from this instant: empty the box and stay ready for the next request.
       onQueued: () => { prompt.value = ''; autoGrow(prompt); att.clear(); plan.setAttribute('aria-pressed', 'false'); },
       afterQueued: () => prompt.focus(),
-      onProject: (projectId) => remember('crProject', projectId),
+      onProject: (projectId, extra) => { remember('crProject', projectId); remember('crProjects', JSON.stringify([projectId, ...extra])); },
       onFail: (message, text) => {
         // The screen may have been rebuilt since (another screen was opened and closed): use whatever box is there now.
         const box = route().view === 'inbox' ? document.querySelector('form.new textarea') : null;
@@ -260,6 +286,10 @@ export function newWorkForm() {
         if (!prompt.value.trim()) { prompt.value = store.newDraft.prompt = store.newDraft.fill; autoGrow(prompt); }
         store.newDraft.fill = null;
       }
+      // An agent just turned off in 設定 → 使うAI is not left chosen.
+      const now = ai.get();
+      const ok = usableChoice(now, (prov) => savedChoice(prov) ?? defaultChoice(prov));
+      if (ok !== now) { ai.set(ok); shownProv = ok.provider; }
       refreshProjects(); syncForm(); paintSent();
     },
   };

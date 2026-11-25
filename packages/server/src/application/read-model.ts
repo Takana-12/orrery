@@ -1,6 +1,6 @@
 // Read model: the one document the UI is sent. Assembled from the core's state plus what each service knows
 // (queue places, processes, folders, sign-ins). Nothing here changes anything.
-import { KNOWLEDGE_HEADING, KNOWLEDGE_LIMITS, MAX_FIX_ROUNDS, completionOf, domainsInOrder } from '#core';
+import { KNOWLEDGE_HEADING, KNOWLEDGE_LIMITS, MAX_FIX_ROUNDS, completionOf, domainsInOrder, enabledProviders } from '#core';
 import type { AttentionItem, ProviderCapabilities, ProviderId } from '#core';
 import type { Accounts } from './accounts.ts';
 import type { Journal } from './journal.ts';
@@ -46,6 +46,8 @@ export function snapshot(rt: Runtime, d: ReadModelDeps) {
       return {
         ...s,
         projectName: st.projects.get(s.projectId)?.name ?? '?',
+        // The other workspaces the work also touches, by name, so a list can say where it belongs at a glance.
+        extraProjectNames: (s.extraProjectIds ?? []).map((id) => st.projects.get(id)?.name).filter((n) => n !== undefined),
         taskTitle: t?.title ?? '?',
         completion: t ? completionOf(t, s) : ('working' as const),
         task: t
@@ -84,7 +86,7 @@ export function snapshot(rt: Runtime, d: ReadModelDeps) {
       unread: working.filter((s) => s.unread).length,
       archived: st.sessions.size - working.length,
     },
-    settings: st.settings,
+    settings: { ...st.settings, providers: enabledProviders(st.settings) },
     auth: d.accounts.view(),
     queue: { length: d.scheduler.length, blockedBy: d.scheduler.blockedBy(), freeMemoryMB: d.scheduler.freeMemoryMB() },
     resources: { processCount, workingSetBytes, scope: 'Control Roomが起動した全エージェントプロセス群の合計（ワーキングセット、共有ページは重複計上）' },

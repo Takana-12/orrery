@@ -2,6 +2,8 @@
 // copy of the snapshot the way the server is expected to; the store shows that copy until the server's own picture
 // arrives. Pure: no DOM, no network. If a guess here is wrong the next snapshot corrects it within moments.
 
+import { AGENTS } from './agents.js';
+
 const session = (state, id) => state.sessions.find((s) => s.id === id);
 const BUSY = ['running', 'waiting_for_user', 'queued'];
 
@@ -141,6 +143,11 @@ export const settingsEffect = (patch) => (state) => {
   if (patch.maxConcurrent !== undefined) next.maxConcurrent = Math.min(20, Math.max(1, Math.floor(Number(patch.maxConcurrent)) || 1));
   if (patch.minFreeMemoryMB !== undefined) next.minFreeMemoryMB = Math.min(65536, Math.max(0, Math.floor(Number(patch.minFreeMemoryMB)) || 0));
   if (patch.sideChat) next.sideChat = { provider: patch.sideChat.provider === 'codex' ? 'codex' : 'claude', model: String(patch.sideChat.model ?? ''), effort: String(patch.sideChat.effort ?? '') };
+  if (Array.isArray(patch.providers)) {
+    // Same rule as the server: known agents in their own order, never none.
+    const want = AGENTS.filter((p) => patch.providers.includes(p));
+    if (want.length) next.providers = want;
+  }
   if (patch.voice) {
     const now = next.voice ?? { plannerAi: { provider: 'claude', model: 'haiku', effort: '' }, confirm: true };
     const ai = patch.voice.plannerAi;

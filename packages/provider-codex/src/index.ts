@@ -170,6 +170,12 @@ export class CodexAdapter implements ProviderAdapter {
       const policy = (config.shell_environment_policy as Record<string, unknown> | undefined) ?? {};
       config.shell_environment_policy = { ...policy, set: { ...((policy.set as object) ?? {}), ...req.env } };
     }
+    // Other workspaces of the same work: writable like the cwd (Codex's own `--add-dir` sets the same key).
+    if (req.extraDirs?.length) {
+      const ww = (config.sandbox_workspace_write as Record<string, unknown> | undefined) ?? {};
+      const roots = Array.isArray(ww.writable_roots) ? (ww.writable_roots as string[]) : [];
+      config.sandbox_workspace_write = { ...ww, writable_roots: [...roots, ...req.extraDirs] };
+    }
     if (Object.keys(config).length) common.config = config;
     if (req.model) common.model = req.model;
     const started = req.resumeProviderSessionId

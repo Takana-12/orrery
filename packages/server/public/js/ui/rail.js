@@ -1,7 +1,8 @@
 // Rail: the strip board. Every piece of work that is not put away, as one strip, grouped by what it waits for.
 import { archiveAll, dismissSending, dropArrivedSending, loadUsage } from '../logic/actions.js';
 import { ago, leftTone, mb, stamp } from '../logic/format.js';
-import { BATTERY_CELLS, limitsModel, quietFor, railModel } from '../logic/selectors.js';
+import { usableAgents } from '../logic/ai.js';
+import { BATTERY_CELLS, limitsModel, newVersionText, quietFor, railModel, workspacesOf } from '../logic/selectors.js';
 import { store } from '../logic/store.js';
 import { askUpdate } from './app-control.js';
 import { $, el, put, sync } from './dom.js';
@@ -89,7 +90,7 @@ function battery(w) {
 /** What is left of each service's 5-hour and weekly windows, as batteries. */
 function paintLimits() {
   if (!rail) return;
-  const model = limitsModel(store.limitsCache?.data);
+  const model = limitsModel(store.limitsCache?.data, usableAgents());
   const sig = JSON.stringify(model);
   if (rail.limits.dataset.sig === sig) return;
   rail.limits.dataset.sig = sig;
@@ -108,7 +109,7 @@ function strip(s, selected, pending) {
     lampFor(s),
     el('span', { class: 't' }, s.taskTitle),
     s.unread ? el('span', { class: 'new-dot', title: '結果をまだ見ていません' }) : pending ? el('span', { class: 'amber' }, String(pending)) : el('span', {}),
-    el('span', { class: 'sub' }, ptag(s.provider), el('span', { class: 'p' }, s.projectName), el('span', { class: 'age' }, ago(s.lifecycleSince ?? s.updatedAt))),
+    el('span', { class: 'sub' }, ptag(s.provider), el('span', { class: 'p' }, workspacesOf(s)), el('span', { class: 'age' }, ago(s.lifecycleSince ?? s.updatedAt))),
     nowLine(s) && el('span', { class: 'now' + (quiet(s) ? ' quiet' : '') }, quiet(s) ? `${quiet(s)}分動きなし: ${s.activity.text}` : nowLine(s)),
     s.deferredMessage && el('span', { class: 'now', title: '終わったら送る指示があります' }, icon('send', 's'), el('span', { class: 'sr-only' }, '終わったら送る指示あり')));
 }
@@ -130,10 +131,14 @@ export function renderRail(r) {
   const ub = $('rail').querySelector('.update-btn');
   ub.classList.toggle('busy', !!store.updating);
   ub.disabled = !!store.updating;
-  const authSig = JSON.stringify(store.state.auth);
+  const nv = newVersionText(store.state.newVersion);
+  ub.classList.toggle('has-new', !!nv && !store.updating);
+  ub.title = nv ? `${nv}（押すと取り込んで更新）` : '更新（ソースから作り直して開き直す）';
+  // Sign-in notices only for the subscriptions the human uses (設定 → 使うAI).
+  const authSig = JSON.stringify([store.state.auth, usableAgents()]);
   if (rail.authBox.dataset.sig !== authSig) {
     rail.authBox.dataset.sig = authSig;
-    put(rail.authBox, ['claude', 'codex'].filter((p) => store.state.auth[p].loggedIn === false).map((p) => loginNotice(p)));
+    put(rail.authBox, usableAgents().filter((p) => store.state.auth[p].loggedIn === false).map((p) => loginNotice(p)));
   }
 
   // On the settings screen the list gives way to the settings' table of contents (everything below stays).

@@ -79,3 +79,41 @@ export function picker({ ic, label, options, value, onChange, iconOnly = false }
   paint();
   return { node, get: () => val, set: (x, next) => { val = x; if (next) opts = next; paint(); } };
 }
+
+/**
+ * A chip for "any number of these": each item in its menu is ticked or not, and a click flips it at once; the menu
+ * stays open so several can be ticked in a row. The chip shows the first ticked (the main one) and how many more.
+ * options: [{ value, label, sub? }]. actions: items at the foot that do something else ({ label, icon, onpick }); they
+ * close the menu. Returns { node, get, set(values, options?) }. `get()` keeps the order things were ticked in.
+ */
+export function multiPicker({ ic, label, options, value, onChange, actions = [], empty = '' }) {
+  let opts = options;
+  let vals = [...value];
+  const v = el('span', { class: 'v' });
+  const more = el('span', { class: 'more' });
+  const node = el('button', { type: 'button', class: 'chip', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, icon(ic, 's'), v, more, icon('down', 'caret'));
+  const labelOf = (x) => opts.find((o) => o.value === x)?.label ?? '';
+  const paint = () => {
+    const names = vals.map(labelOf).filter(Boolean);
+    v.textContent = names[0] ?? empty;
+    more.textContent = names.length > 1 ? `+${names.length - 1}` : '';
+    node.title = names.length ? `${label}: ${names.join('、')}` : label;
+    node.setAttribute('aria-label', node.title);
+  };
+  const flip = (x) => {
+    vals = vals.includes(x) ? vals.filter((y) => y !== x) : [...vals, x];
+    paint();
+    onChange?.([...vals]);
+  };
+  node.addEventListener('click', () => openMenu(node, ({ close, repaint }) => [
+    opts.map((o, i) => {
+      const b = menuItem({ ic: o.icon, label: o.label, sub: o.sub, checked: vals.includes(o.value), n: i < 9 ? i + 1 : null, onpick: () => { flip(o.value); repaint(`[data-v="${CSS.escape(o.value)}"]`); } });
+      b.role = 'menuitemcheckbox';
+      b.dataset.v = o.value;
+      return b;
+    }),
+    actions.map((a, i) => [i === 0 && opts.length > 0 && el('hr', {}), menuItem({ ic: a.icon, label: a.label, onpick: () => { close(); a.onpick(); } })]),
+  ], label));
+  paint();
+  return { node, get: () => [...vals], set: (x, next) => { vals = [...x]; if (next) opts = next; paint(); } };
+}

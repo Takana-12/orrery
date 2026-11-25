@@ -112,7 +112,7 @@ async function tidyReply(mine, target, heard) {
 }
 
 /** All that was said, as a reply to `s`; should it become new work instead, it starts where `s` is, with its AI. */
-const replyTask = (s, prompt) => ({ key: `v${++taskKey}`, sessionId: s.id, projectId: s.projectId, provider: s.provider, model: s.model ?? '', effort: s.effort ?? '', prompt });
+const replyTask = (s, prompt) => ({ key: `v${++taskKey}`, sessionId: s.id, projectId: s.projectId, extraProjectIds: [...(s.extraProjectIds ?? [])], provider: s.provider, model: s.model ?? '', effort: s.effort ?? '', prompt });
 
 /** The plan is known: wait for the human's go, or go at once (settings.voice.confirm). */
 function ready(tasks) {
@@ -137,13 +137,14 @@ async function planVoice(mine, text) {
   const r = await api('/api/voice/plan', { text, lastProjectId: remembered('crProject'), usual: usualChoices() });
   if (run !== mine) return;
   if (r.status !== 200) return fail(r.body.error || '依頼を読み取れませんでした');
-  const tasks = (r.body.tasks ?? []).map((t) => ({ key: `v${++taskKey}`, sessionId: sessionOf(t.sessionId) ? t.sessionId : '', projectId: t.projectId, provider: t.provider, model: t.model ?? '', effort: t.effort ?? '', prompt: t.prompt }));
+  const tasks = (r.body.tasks ?? []).map((t) => ({ key: `v${++taskKey}`, sessionId: sessionOf(t.sessionId) ? t.sessionId : '', projectId: t.projectId, extraProjectIds: [], provider: t.provider, model: t.model ?? '', effort: t.effort ?? '', prompt: t.prompt }));
   if (!tasks.length) return fail('依頼が見つかりませんでした');
   ready(tasks);
 }
 
 /**
- * Change where a planned piece of work goes or who does it (`patch`: { projectId } or { provider, model, effort }),
+ * Change where a planned piece of work goes or who does it (`patch`: { projectId, extraProjectIds } — the main
+ * workspace and any others ticked with it, as in the new-work box — or { provider, model, effort }),
  * or which work it answers (`patch`: { sessionId }; '' = start it as new work).
  */
 export function setVoiceTask(key, patch) {
@@ -207,8 +208,11 @@ export function confirmVoice() {
     }
     const project = store.state?.projects.find((p) => p.id === t.projectId);
     const title = t.prompt.trim().replace(/\s+/g, ' ').slice(0, 40);
+    if (!project) { store.notice(`「${title}」はワークスペースが選ばれていないため、始めませんでした`); continue; }
+    const others = (t.extraProjectIds ?? []).filter((id) => id !== t.projectId && store.state.projects.some((p) => p.id === id));
+    const names = [project.name, ...others.map((id) => store.state.projects.find((p) => p.id === id).name)];
     // No `worktree`: left out, the workspace's own setting decides (Sessions.start).
-    void startWork({ text: t.prompt, suffix: '', provider: t.provider, model: t.model, effort: t.effort, approvalMode: approvalFor(project, t.provider), planMode: false, codexPolicy: '', projectId: t.projectId, folder: '', projectName: project?.name ?? '' }, {
+    void startWork({ text: t.prompt, suffix: '', provider: t.provider, model: t.model, effort: t.effort, approvalMode: approvalFor(project, t.provider), planMode: false, codexPolicy: '', workspaces: [t.projectId, ...others], projectName: names.join('・') }, {
       keepDraft: true,
       onFail: (message) => store.notice(`「${title}」を始められませんでした: ${message}`),
     });

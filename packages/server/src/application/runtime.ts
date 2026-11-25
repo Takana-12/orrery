@@ -1,11 +1,12 @@
 // What every application service works with: the core (decisions and state), the store (persistence), the provider
 // adapters, and the few cross-cutting helpers. Built once by the composition root (app.ts) and handed to each service,
 // so services depend on this small surface and on each other only through explicit constructor arguments.
-import type { AgentSession, ControlCore, ProviderAdapter, ProviderId } from '#core';
+import { PROVIDER_IDS, type AgentSession, type ControlCore, type ProviderAdapter, type ProviderId } from '#core';
 import type { SqliteStore } from '../infrastructure/sqlite-store.ts';
 import { HttpError } from './errors.ts';
 
-export const PROVIDERS = ['claude', 'codex'] as const;
+/** Every provider there is an adapter for (core PROVIDER_IDS). Which the human uses: enabledProviders(settings). */
+export const PROVIDERS = PROVIDER_IDS;
 
 export interface Runtime {
   readonly core: ControlCore;

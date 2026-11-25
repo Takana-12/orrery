@@ -15,8 +15,9 @@
   },
   "scripts": {
     "start": "node packages/server/src/main.ts",
-    "test": "node --test \"packages/**/*.test.ts\" \"packages/**/*.test.mjs\"",
+    "test": "node --test \"packages/**/*.test.ts\" \"packages/**/*.test.mjs\" \"apps/desktop/*.test.mjs\"",
     "test:knowledge-ui": "electron packages/server/test/knowledge-ui.mjs",
+    "test:update-ui": "electron packages/server/test/update-ui.mjs",
     "test:voice-ui": "electron packages/server/test/voice-ui.mjs",
     "typecheck": "tsc --noEmit",
     "e2e": "node packages/server/test/e2e.ts && node packages/server/test/e2e-supervisors.ts",

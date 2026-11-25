@@ -182,11 +182,13 @@ export const reportCommand = (sessionId, command, exitCode, output) =>
 
 /**
  * Start a piece of work. It shows in the rail at once (store.sending); the server is asked afterwards.
- * `draft`: { text, suffix, provider, model, effort, approvalMode, planMode, worktree, codexPolicy, projectId, folder, projectName }.
+ * `draft`: { text, suffix, provider, model, effort, approvalMode, planMode, worktree, codexPolicy, workspaces, projectName }.
+ * `workspaces`: where, main one first (project ids, or "path:<folder>" for a folder to register first). Callers with a
+ * single one may give `projectId` / `folder` instead.
  * `hooks` let the screen follow along without this function knowing about it:
  *   onQueued()            the work is in the rail: clear the input
  *   afterQueued()         the screen has been redrawn
- *   onProject(projectId)  which project it went to (a picked folder has been registered by now)
+ *   onProject(projectId, extraProjectIds)  where it went (picked folders have been registered by now)
  *   onFail(message, text) it could not be sent: put the words back
  *   keepDraft             the work did not come from the new-work box (voice): leave what is being written there
  */
@@ -212,14 +214,18 @@ export async function startWork(draft, hooks = {}) {
     hooks.onFail?.(message, draft.text);
     store.changed();
   };
-  let projectId = draft.projectId;
-  if (!projectId) {
-    const r = await api('/api/projects', { path: draft.folder });
+  // The workspaces, main one first: a project id, or "path:<folder>" for a folder picked but not yet registered.
+  const wanted = draft.workspaces ?? [draft.projectId || `path:${draft.folder}`];
+  const ids = [];
+  for (const w of wanted) {
+    if (!w.startsWith('path:')) { ids.push(w); continue; }
+    const r = await api('/api/projects', { path: w.slice(5) });
     if (r.status !== 200) return fail(r.body.error || 'フォルダを登録できませんでした');
-    projectId = r.body.projectId;
+    ids.push(r.body.projectId);
   }
-  hooks.onProject?.(projectId);
-  const r = await api('/api/sessions', { ...body, projectId });
+  const [projectId, ...extraProjectIds] = [...new Set(ids)];
+  hooks.onProject?.(projectId, extraProjectIds);
+  const r = await api('/api/sessions', { ...body, projectId, ...(extraProjectIds.length ? { extraProjectIds } : {}) });
   if (r.status !== 200) return fail(r.body.error || '始められませんでした');
   entry.sessionId = r.body.sessionId;
   // The note under the box cuts the title to the screen width itself, so it gets more than the rail's 40 characters.
@@ -396,6 +402,18 @@ export async function shutdownApp() {
   return r;
 }
 export const runAppUpdate = (kind) => api(`/api/app-update/${kind}`, {});
+
+/** Ask GitHub now whether there is a newer version. Shown as checking at once; the answer comes back with the state. */
+export async function checkAppUpdate() {
+  store.checkingUpdate = true;
+  store.changed();
+  const r = await runAppUpdate('check');
+  store.checkingUpdate = false;
+  store.changed();
+  if (r.status !== 200) store.notice(`新しい版を確認できませんでした: ${r.body.error || r.status}`);
+  else if (r.body.remote?.error) store.notice(`新しい版を確認できませんでした: ${r.body.remote.error}`);
+  return r;
+}
 
 /** Rebuild from source and reopen. The button shows it at once; if it cannot be started, that is taken back and the reason shown. */
 export async function startAppUpdate() {

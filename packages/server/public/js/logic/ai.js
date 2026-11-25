@@ -1,10 +1,27 @@
 // Which AI answers: the agents, the models each offers and how hard they think. A choice is
 // { provider, model, effort }; an empty model or effort means "the agent's own default".
 // Model lists come from the providers themselves, once per page, and are shared by every picker.
+import { AGENTS } from './agents.js';
 import { api } from './api.js';
 import { store } from './store.js';
 
-export const AGENTS = ['claude', 'codex'];
+export { AGENTS };
+
+/**
+ * The agents the human has a subscription for (設定 → 使うAI). Only these are offered in AI pickers and shown in
+ * usage. Settings from before the choice existed: all of them. Never empty.
+ */
+export function usableAgents(settings = store.state?.settings) {
+  const on = AGENTS.filter((p) => settings?.providers?.includes(p) ?? true);
+  return on.length ? on : [...AGENTS];
+}
+
+/** `choice` if its agent is one the human uses, otherwise what picking the first agent they use would choose. */
+export const usableChoice = (choice, recall = defaultChoice) => {
+  const usable = usableAgents();
+  if (usable.includes(choice?.provider)) return choice;
+  return stillValid(recall(usable[0]), usable[0]);
+};
 
 /** provider -> { models, status: 'loading' | 'ready' | 'failed', promise } */
 const lists = new Map();

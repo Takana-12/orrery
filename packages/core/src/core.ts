@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import type { CoreEvent, EventStore, StoredEvent } from './events.ts';
 import { apply, fold } from './reducer.ts';
-import { APPROVAL_MODES, PROJECT_DESCRIPTION_MAX } from './types.ts';
+import { APPROVAL_MODES, PROJECT_DESCRIPTION_MAX, PROVIDER_IDS, enabledProviders } from './types.ts';
 import type {
   AgentSession,
   ApprovalMode,
@@ -143,7 +143,7 @@ export class ControlCore {
     if (Object.keys(change).length) this.emit({ type: 'project.options_changed', projectId, ...change });
   }
 
-  createSession(input: { projectId: string; provider: ProviderId; title: string; acceptanceCriteria?: string | null; checkCommand?: string | null; autoFix?: boolean; cwd?: string; model?: string | null; effort?: string | null; approvalMode?: ApprovalMode }): AgentSession {
+  createSession(input: { projectId: string; provider: ProviderId; title: string; acceptanceCriteria?: string | null; checkCommand?: string | null; autoFix?: boolean; cwd?: string; extraProjectIds?: string[]; model?: string | null; effort?: string | null; approvalMode?: ApprovalMode }): AgentSession {
     const project = this.state.projects.get(input.projectId);
     if (!project) throw new Error('unknown project');
     const taskId = randomUUID();
@@ -163,6 +163,7 @@ export class ControlCore {
       taskId,
       provider: input.provider,
       cwd: input.cwd ?? project.rootPath,
+      ...(input.extraProjectIds?.length ? { extraProjectIds: [...new Set(input.extraProjectIds)].filter((id) => id !== project.id && this.state.projects.has(id)) } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.effort ? { effort: input.effort } : {}),
       ...(input.approvalMode && input.approvalMode !== 'ask' ? { approvalMode: input.approvalMode } : {}),
@@ -304,6 +305,11 @@ export class ControlCore {
         };
       }
       if (JSON.stringify(v) !== JSON.stringify(now)) next.voice = v;
+    }
+    if (Array.isArray(patch.providers)) {
+      // Known providers only, in their own order; at least one stays on (there is always some AI to ask).
+      const want = PROVIDER_IDS.filter((p) => (patch.providers as unknown[]).includes(p));
+      if (want.length && JSON.stringify(want) !== JSON.stringify(enabledProviders(this.state.settings))) next.providers = want;
     }
     if (Object.keys(next).length) this.emit({ type: 'settings.changed', settings: next });
     return this.state.settings;

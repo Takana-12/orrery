@@ -31,9 +31,20 @@ export interface StartSessionInput {
   planMode?: boolean;
   /** Work in a git worktree of its own. Left out, the project's own setting decides. */
   worktree?: boolean;
+  /**
+   * Other workspaces the same work also reads and edits (the human ticked several). `projectId` stays the main one:
+   * its folder (or worktree) is where the agent starts, and its settings apply. These are used in place, no worktree.
+   */
+  extraProjectIds?: string[];
   /** Provider-specific extras, passed through to the adapter untouched. */
   codex?: unknown;
   claude?: unknown;
+}
+
+/** Told to the agent with the first message, so it knows where the other workspaces are (one line each). */
+export function alsoNote(also: { name: string; rootPath: string }[]): string {
+  if (!also.length) return '';
+  return ['この作業では、次のワークスペースも参照・編集の対象です（作業フォルダの外にあります）:', ...also.map((p) => `- ${p.name}: ${p.rootPath}`)].join('\n');
 }
 
 export interface SessionDeps {
@@ -91,6 +102,8 @@ export class Sessions {
     if (!input.prompt?.trim()) throw new HttpError(400, '指示文が空です');
     mustProject(rt, input.projectId);
     mustProvider(input.provider);
+    const extras = [...new Set(Array.isArray(input.extraProjectIds) ? input.extraProjectIds.map(String) : [])].filter((id) => id !== input.projectId);
+    for (const id of extras) mustProject(rt, id);
     const given = input.title?.trim();
     // A worktree of its own, so that agents working in parallel never edit the same checkout.
     // The project decides by default (on unless turned off in settings); the new-work screen may say otherwise.
@@ -110,6 +123,7 @@ export class Sessions {
     const s = rt.core.createSession({
       cwd: wt?.cwd,
       projectId: input.projectId,
+      extraProjectIds: extras,
       provider: input.provider,
       title: given || input.prompt.trim().replace(/\s+/g, ' ').slice(0, 40),
       acceptanceCriteria: input.acceptanceCriteria ?? null,
@@ -142,7 +156,8 @@ export class Sessions {
     const own = project.preamble?.trim();
     const preferences = knowledge.preferencesFor(input.projectId, input.prompt);
     knowledge.heard(s.id, input.prompt);
-    const base = { sessionId: s.id, cwd: s.cwd, readDirs: [attachmentsDir], model: s.requestedModel, effort: s.effort, approvalMode: s.approvalMode, planMode: input.planMode, codex: input.codex, claude: input.claude };
+    const also = this.alsoIn(s);
+    const base = { sessionId: s.id, cwd: s.cwd, readDirs: [attachmentsDir], extraDirs: also.map((p) => p.rootPath), model: s.requestedModel, effort: s.effort, approvalMode: s.approvalMode, planMode: input.planMode, codex: input.codex, claude: input.claude };
     const made = wt;
     const ready = made ? workspaces.materialize(made, root) : Promise.resolve();
     ready.catch(() => {});
@@ -155,14 +170,20 @@ export class Sessions {
         return;
       }
       const k = await preferences;
-      const preamble = [appWide, own, k.text].filter(Boolean).join('\n\n');
+      const preamble = [appWide, own, k.text, alsoNote(also)].filter(Boolean).join('\n\n');
       const said: string[] = [];
       if (appWide || own) said.push(`${appWide && own ? '設定とプロジェクトの' : own ? 'プロジェクトの' : '設定の'}「デフォルトメッセージ」`);
       if (k.domains.length) said.push(`こだわり（${k.domains.join('、')}）`);
+      if (also.length) said.push(`ほかのワークスペース（${also.map((p) => p.name).join('、')}）の場所`);
       if (said.length) journal.write(s.id, 'system', `${said.join('と')}を先頭に付けて送りました。${k.dropped ? `${k.dropped} セクションは、添付上限の5,000字まで送りました（保存した全文は残っています）。` : ''}`);
       await rt.adapters[s.provider].startSession({ ...base, prompt: preamble ? `${preamble}\n\n${input.prompt}` : input.prompt, shownPrompt: preamble ? input.prompt : undefined, env: secrets.envFor(s.projectId) });
     });
     return s.id;
+  }
+
+  /** The other workspaces a piece of work also works in (any removed since are left out). */
+  private alsoIn(s: { extraProjectIds?: string[] }) {
+    return (s.extraProjectIds ?? []).map((id) => this.rt.core.state.projects.get(id)).filter((p) => p !== undefined);
   }
 
   hasDeferred(sessionId: string): boolean {
@@ -257,7 +278,7 @@ export class Sessions {
       }
       try {
         await this.d.workspaces.reopen(sessionId);
-        await adapter.startSession({ sessionId, cwd: s.cwd, prompt: text, readDirs: [this.d.attachmentsDir], resumeProviderSessionId: s.providerSessionId, model: s.model ?? s.requestedModel, effort, approvalMode: s.approvalMode, env: this.d.secrets.envFor(s.projectId) });
+        await adapter.startSession({ sessionId, cwd: s.cwd, prompt: text, readDirs: [this.d.attachmentsDir], extraDirs: this.alsoIn(s).map((p) => p.rootPath), resumeProviderSessionId: s.providerSessionId, model: s.model ?? s.requestedModel, effort, approvalMode: s.approvalMode, env: this.d.secrets.envFor(s.projectId) });
         effortApplied();
       } catch (e) {
         if (s.effort === effort && !this.deferred.has(sessionId)) rt.core.sessionUpdate(sessionId, { effort: previousEffort });

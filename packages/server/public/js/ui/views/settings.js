@@ -1,9 +1,11 @@
 // Settings: one row per setting — a short name and at most one short line on the left, its control on the right.
 import { askShutdown } from '../app-control.js';
-import { addProjectFromFolder, loadAppUpdate, loadStorage, prepareVoice, purgeStorage, renameProject, runAppUpdate, setKnowledgeSettings, setProjectApproval, setProjectCapture, setProjectDescription, setProjectPreamble, setProjectWorktree, setSettings, setVoiceSettings } from '../../logic/actions.js';
+import { addProjectFromFolder, checkAppUpdate, loadAppUpdate, loadStorage, prepareVoice, purgeStorage, renameProject, runAppUpdate, setKnowledgeSettings, setProjectApproval, setProjectCapture, setProjectDescription, setProjectPreamble, setProjectWorktree, setSettings, setVoiceSettings } from '../../logic/actions.js';
 import { fullStamp } from '../../logic/format.js';
 import { knowledgeUsage } from '../../logic/knowledge.js';
+import { newVersionText } from '../../logic/selectors.js';
 import { store } from '../../logic/store.js';
+import { AGENTS, usableAgents } from '../../logic/ai.js';
 import { aiPicker } from '../ai-picker.js';
 import { $, autoGrow, el, sync } from '../dom.js';
 import { icon } from '../icons.js';
@@ -12,7 +14,7 @@ import { editMessage } from '../message-dialog.js';
 import { go, route } from '../shell.js';
 import { SETTINGS_SECTIONS, sectionAnchor } from '../settings-sections.js';
 import { setTheme, theme, THEMES } from '../theme.js';
-import { APPROVAL_OPTS, SHORTCUTS } from '../vocabulary.js';
+import { APPROVAL_OPTS, PROVIDER, SHORTCUTS } from '../vocabulary.js';
 
 /** A setting: name (and an optional one-line note) at the left, the control at the right. */
 const row = (name, note, ...control) => el('div', { class: 'set-row' }, el('div', { class: 'lab' }, el('b', {}, name), note), el('div', { class: 'ctl' }, ...control));
@@ -103,6 +105,20 @@ export function settingsView() {
 
   // ---- 外観 ----
   const themeSeg = segmented('テーマ', THEMES, theme(), setTheme);
+
+  // ---- 使うAI ----
+  // Which subscriptions the human has: only those are offered when choosing an AI, and only their plan usage is shown
+  // and watched. One switch per agent the app can drive (AGENTS); the last one on cannot be turned off.
+  const agentSwitches = AGENTS.map((p) => ({ p, t: toggle(PROVIDER[p], (on) => set({ providers: on ? [...usableAgents(), p] : usableAgents().filter((x) => x !== p) }), usableAgents().includes(p)) }));
+  const paintAgents = () => {
+    const on = usableAgents();
+    for (const { p, t } of agentSwitches) {
+      t.checked = on.includes(p);
+      t.disabled = on.length === 1 && on[0] === p;
+      t.title = t.disabled ? '少なくとも1つは使います' : '';
+    }
+  };
+  paintAgents();
 
   // ---- 作業 ----
   const n = el('b', { class: 'big' });
@@ -207,6 +223,27 @@ export function settingsView() {
   const updLog = el('pre', { class: 'upd-log', hidden: true });
   const updBtn = el('button', { type: 'button', class: 'primary', title: 'ソースから作り直して開き直します（作っている間も使えます）' }, icon('restore', 's'), el('span', {}, '更新'));
   const restartBtn = el('button', { type: 'button', title: '開き直します。ソースが変わっていれば先に作り直します（作っている間も使えます）' }, icon('power', 's'), '再起動');
+  const remoteNote = el('small', {}, '…');
+  const checkBtn = el('button', { type: 'button', title: 'GitHub に新しい版があるかを今すぐ確かめます（起動時と1時間ごとにも自動で確かめます）', onclick: async () => {
+    checkBtn.disabled = true;
+    remoteNote.textContent = '確認しています…';
+    await checkAppUpdate();
+    checkBtn.disabled = false;
+    loadUpd();
+  } }, icon('search', 's'), '今すぐ確認');
+  const remoteRow = row('GitHub の新しい版', remoteNote, checkBtn);
+  remoteRow.hidden = true;
+  const paintRemote = (r) => {
+    // A copy whose branch tracks nothing (a private development copy) is never checked: the row is left out.
+    remoteRow.hidden = !r?.tracking;
+    if (remoteRow.hidden) return;
+    const when = r.checkedAt ? `（${fullStamp(r.checkedAt)} に確認）` : '';
+    remoteNote.textContent = r.checking || store.checkingUpdate ? '確認しています…'
+      : r.error ? `確認できませんでした${when}: ${r.error}`
+      : r.behind > 0 ? newVersionText({ behind: r.behind, subject: r.latest?.subject, canPull: r.ahead === 0 })
+      : r.checkedAt ? `最新です${when}` : 'まだ確認していません';
+    checkBtn.disabled = !!(r.checking || store.checkingUpdate);
+  };
   const stopBtn = el('button', { type: 'button', class: 'danger-fill', title: 'アプリ・サーバー・すべてのエージェントを終了します（通知領域にも残りません）', onclick: askShutdown }, icon('power', 's'), '完全に停止');
   const confirmStop = (what) => {
     const c = store.state.counts;
@@ -216,7 +253,9 @@ export function settingsView() {
   const short = (x) => (x ? x.slice(0, 7) : '?');
   const paintUpd = (u) => {
     updErr.textContent = u.error || '';
-    updLog.hidden = !(u.phase === 'building' || u.phase === 'failed') || !u.log?.length;
+    paintRemote(u.remote);
+    const working = u.phase === 'pulling' || u.phase === 'installing' || u.phase === 'building';
+    updLog.hidden = !(working || u.phase === 'failed') || !u.log?.length;
     if (!updLog.hidden) { updLog.textContent = u.log.join('\n'); updLog.scrollTop = updLog.scrollHeight; }
     if (u.mode === 'console') {
       updInfo.textContent = 'コンソール起動のため更新できません';
@@ -233,16 +272,18 @@ export function settingsView() {
     }
     const src = u.source;
     updState.textContent =
-      u.phase === 'building' ? `ビルド中（${Math.round((Date.now() - u.startedAt) / 1000)}秒）。終わると自動で再起動します`
+      u.phase === 'pulling' ? 'GitHub から新しい版を取り込んでいます…'
+      : u.phase === 'installing' ? `依存を入れ直しています（npm install、${Math.round((Date.now() - u.startedAt) / 1000)}秒）`
+      : u.phase === 'building' ? `ビルド中（${Math.round((Date.now() - u.startedAt) / 1000)}秒）。終わると自動で再起動します`
       : u.phase === 'restarting' ? '再起動しています…'
       : u.mode === 'dev' ? ''
       : !u.canBuild ? `ソースのフォルダが見つかりません（${u.repo}）`
       : u.upToDate === true ? (u.build?.builtAt ? `last updated at : ${fullStamp(u.build.builtAt)}` : '最新です')
       : u.upToDate === false ? `更新あり: ${short(src?.commit)} ${src?.subject ?? ''}${src?.dirty ? '（+未コミット）' : ''}`
       : '';
-    updBtn.disabled = u.phase === 'building' || u.phase === 'restarting' || (u.mode === 'packaged' && !u.canBuild);
-    restartBtn.disabled = u.phase === 'building' || u.phase === 'restarting';
-    updBtn.classList.toggle('primary', u.upToDate !== true);
+    updBtn.disabled = working || u.phase === 'restarting' || (u.mode === 'packaged' && !u.canBuild);
+    restartBtn.disabled = working || u.phase === 'restarting';
+    updBtn.classList.toggle('primary', u.upToDate !== true || u.remote?.behind > 0);
   };
   let updTimer = null;
   const loadUpd = async () => {
@@ -256,7 +297,7 @@ export function settingsView() {
     }
     if (r.status !== 200) return void (updInfo.textContent = r.body.error || '状態を取得できませんでした');
     paintUpd(r.body);
-    if (r.body.phase === 'building' || r.body.phase === 'restarting') updTimer = setTimeout(loadUpd, 1500);
+    if (['pulling', 'installing', 'building', 'restarting'].includes(r.body.phase) || r.body.remote?.checking) updTimer = setTimeout(loadUpd, 1500);
   };
   const runUpd = async (kind) => {
     if (!confirmStop(kind === 'update' ? '更新' : '再起動')) return;
@@ -280,6 +321,8 @@ export function settingsView() {
     el('h1', {}, icon('gear', 'l'), '設定', el('button', { class: 'quiet narrow-only', onclick: () => go('#/') }, icon('back', 's'), '戻る')),
     group('look',
       row('テーマ', null, themeSeg)),
+    group('agents',
+      ...agentSwitches.map(({ p, t }) => row(el('span', { class: 'agent-name' }, icon(p, 's'), PROVIDER[p]), null, t))),
     group('work',
       row('同時に動かす数', queueNote, el('div', { class: 'stepper' }, minus, n, plus)),
       row('空きメモリの下限', memNote, mem, el('span', { class: 'unit' }, 'MB')),
@@ -310,6 +353,7 @@ export function settingsView() {
       purgeNote),
     group('update',
       row('バージョン', updInfo, stopBtn, restartBtn, updBtn),
+      remoteRow,
       updState, updErr, updLog)));
 
   return {
@@ -321,6 +365,7 @@ export function settingsView() {
       plus.disabled = st.settings.maxConcurrent >= 20;
       queueNote.textContent = st.queue.length ? `${st.queue.length}件が順番待ち` : '';
       askCmd.checked = st.settings.confirmCommands !== false;
+      paintAgents();
       autoResume.checked = st.settings.autoResumeOnLimit !== false;
       if (st.settings.sideChat) chatAi.set(st.settings.sideChat);
       voiceAi.set(st.settings.voice?.plannerAi ?? VOICE_AI);

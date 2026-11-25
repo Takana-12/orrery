@@ -68,7 +68,7 @@ function workRow(s, { text, actions = [], reply = null, oneLine = false }) {
     store.errors.has(s.id) && el('span', { class: 'x err', role: 'alert' }, store.errors.get(s.id)),
     replying && quickReply(s, reply.placeholder));
 }
-const rowSig = (s) => [s.lifecycle, s.completion, s.taskTitle, s.projectName, s.model, s.effort, s.unread, s.lastText, s.error, JSON.stringify(s.usageResume ?? null), s.busyWith, s.queuePosition, nowLine(s), store.replying.has(s.id), store.errors.get(s.id), ago(s.lifecycleSince ?? s.updatedAt)].join('|');
+const rowSig = (s) => [s.lifecycle, s.completion, s.taskTitle, s.projectName, s.extraProjectNames?.join('・'), s.model, s.effort, s.unread, s.lastText, s.error, JSON.stringify(s.usageResume ?? null), s.busyWith, s.queuePosition, nowLine(s), store.replying.has(s.id), store.errors.get(s.id), ago(s.lifecycleSince ?? s.updatedAt)].join('|');
 
 const problemRow = (s) => workRow(s, {
   text: s.usageResume ? (s.usageResume.resetsAt === null ? '利用枠の復活待ち。復活時刻を確認でき次第、自動再開を予約します。' : `利用枠の復活待ち。${fullStamp(s.usageResume.resetsAt + 60_000)}ごろに自動再開します。`)

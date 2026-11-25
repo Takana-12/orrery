@@ -233,14 +233,21 @@ export function checkGroups(sessions) {
   return [...by.values()].filter((g) => g.works.some((w) => w.items.some((i) => !i.step.done)));
 }
 
+/**
+ * Where a piece of work belongs, in words: its main workspace, then any others it also works in ("Orrery・Web").
+ * Empty when it has none.
+ */
+export const workspacesOf = (s) => [s.projectName, ...(s.extraProjectNames ?? [])].filter(Boolean).join('・');
+
 /** A battery is drawn as this many cells: each stands for a fifth of the window. */
 export const BATTERY_CELLS = 5;
 /**
  * What is left of each service's plan windows (5-hour and weekly), for the battery gauges. `left` is a percentage or
  * null when unknown; `cells` how many of the BATTERY_CELLS are lit (any amount left lights at least one).
+ * `providers`: the services to show (the subscriptions the human uses).
  */
-export function limitsModel(usage) {
-  return ['claude', 'codex'].map((provider) => ({
+export function limitsModel(usage, providers = ['claude', 'codex']) {
+  return providers.map((provider) => ({
     provider,
     windows: ['five_hour', 'weekly'].map((kind) => {
       const l = (usage?.[provider]?.limits ?? []).find((x) => x.kind === kind);
@@ -254,4 +261,16 @@ export function limitsModel(usage) {
 export const busyCount = (state) => {
   const c = state?.counts ?? {};
   return (c.running ?? 0) + (c.waiting ?? 0) + (c.queued ?? 0);
+};
+
+/**
+ * A newer version of Orrery waiting on GitHub (state.newVersion), in words for the rail and the update dialog.
+ * null when there is none.
+ */
+export const newVersionText = (nv) => {
+  if (!nv?.behind) return null;
+  const what = nv.subject ? `「${nv.subject}」${nv.behind > 1 ? `ほか、${nv.behind}件の変更` : ''}` : `${nv.behind}件の変更`;
+  return nv.canPull
+    ? `GitHub に新しい版があります：${what}`
+    : `GitHub に新しい版があります（${what}）。手元に独自のコミットがあるため、自動では取り込みません。git pull で取り込んでください`;
 };

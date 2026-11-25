@@ -2,6 +2,18 @@
 
 export type ProviderId = 'claude' | 'codex';
 
+/**
+ * Every agent Orrery knows how to drive, in the order the screens list them. A new one (e.g. Gemini) is added here,
+ * to ProviderId, and as an adapter on the server; the human then turns it on in 設定 → 使うAI.
+ */
+export const PROVIDER_IDS: readonly ProviderId[] = ['claude', 'codex'];
+
+/** The subscriptions the human uses (settings.providers). Absent in older settings: all of them. Never empty. */
+export function enabledProviders(settings: { providers?: readonly ProviderId[] | null }): ProviderId[] {
+  const on = PROVIDER_IDS.filter((p) => settings.providers?.includes(p) ?? true);
+  return on.length ? on : [...PROVIDER_IDS];
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -132,6 +144,11 @@ export interface Settings {
   knowledge: KnowledgeSettings;
   /** Voice input (hold Space): which AI turns what was said into work, and whether the human looks before it starts. */
   voice: VoiceSettings;
+  /**
+   * The AI subscriptions the human has (設定 → 使うAI). Only these are offered when choosing an AI, and only their
+   * plan usage is shown and watched. Absent (older settings): every provider. See enabledProviders().
+   */
+  providers?: ProviderId[];
 }
 
 export interface VoiceSettings {
@@ -250,6 +267,11 @@ export interface AgentSession {
   taskId: string;
   provider: ProviderId;
   cwd: string;
+  /**
+   * Other workspaces this work also reads and edits (their own folders, never a worktree), in the order the human
+   * chose them. `projectId` is the main one: its folder is the cwd and its settings apply. Absent: none.
+   */
+  extraProjectIds?: string[];
   /** Claude session id / Codex thread id. Null until the provider reports it. */
   providerSessionId: string | null;
   model: string | null;

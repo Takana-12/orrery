@@ -9,7 +9,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { App } from '../../app.ts';
 import { HttpError } from '../../application/errors.ts';
 import { json, readBody, readBytes } from './io.ts';
-import { ROUTES, Reply } from './routes.ts';
+import { ROUTES, Reply, stateOf } from './routes.ts';
 import type { AppUpdater, Route } from './routes.ts';
 
 export type { AppUpdater };
@@ -59,7 +59,7 @@ export function startHttp(opts: HttpOptions): Promise<Server> {
     setTimeout(() => {
       scheduled = false;
       if (!streams.size) return;
-      const payload = `data: ${JSON.stringify(app.snapshot())}\n\n`;
+      const payload = `data: ${JSON.stringify(stateOf(app, opts.appUpdate))}\n\n`;
       for (const res of streams) res.write(payload);
     }, 50);
   });
@@ -90,7 +90,7 @@ export function startHttp(opts: HttpOptions): Promise<Server> {
 
       if (method === 'GET' && path === '/api/stream') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-        res.write(`data: ${JSON.stringify(app.snapshot())}\n\n`);
+        res.write(`data: ${JSON.stringify(stateOf(app, opts.appUpdate))}\n\n`);
         streams.add(res);
         console.log(`[control-room] UI connected (${streams.size} open)`);
         req.on('close', () => streams.delete(res));

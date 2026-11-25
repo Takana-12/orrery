@@ -1,6 +1,6 @@
 // The human's accounts at each provider: whether this machine is signed in, how much of the plan is used, which
 // models are offered. Orrery never reads credentials; it asks the provider's own program and watches the answer.
-import type { AuthStatus, ModelChoice, ProviderId, UsageLimit } from '#core';
+import { enabledProviders, type AuthStatus, type ModelChoice, type ProviderId, type UsageLimit } from '#core';
 import { HttpError } from './errors.ts';
 import { PROVIDERS, message, mustProvider } from './runtime.ts';
 import type { Runtime } from './runtime.ts';
@@ -33,11 +33,19 @@ export class Accounts {
     this.onLimits = onLimits;
   }
 
+  /**
+   * Only the subscriptions the human uses (設定 → 使うAI) are watched: an unused one is never started just to ask
+   * whether it is signed in. One turned on later is checked on the next tick.
+   */
+  private used(): readonly ProviderId[] {
+    return enabledProviders(this.rt.core.state.settings);
+  }
+
   /** Check now, then keep an eye on it (a provider can sign the machine out at any time). */
   watch(): void {
-    for (const p of PROVIDERS) void this.refresh(p);
+    for (const p of this.used()) void this.refresh(p);
     this.timer = setInterval(() => {
-      for (const p of PROVIDERS) {
+      for (const p of this.used()) {
         const a = this.auth[p];
         const waiting = a.loginStartedAt !== null;
         if (waiting && Date.now() - a.loginStartedAt! > 10 * 60_000) a.loginStartedAt = null;
@@ -113,7 +121,7 @@ export class Accounts {
     const day = store.usageSince(today);
     const week = store.usageSince(Date.now() - 7 * 86_400_000);
     const out: Record<string, unknown> = {};
-    for (const p of PROVIDERS) {
+    for (const p of this.used()) {
       let cached = this.limitCache.get(p);
       let limitsError: string | null = null;
       if (!cached || Date.now() - cached.at > 60_000) {

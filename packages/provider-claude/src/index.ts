@@ -770,7 +770,7 @@ export class ClaudeAdapter implements ProviderAdapter {
         // and every ls, cd and git after the plan waited for the human although the work was left to the agent's review.
         ...(req.planMode && mode === 'default' ? { permissionMode: 'plan' as const } : mode !== 'default' ? { permissionMode: mode } : {}),
         ...(req.effort ? { effort: req.effort as any } : {}),
-        ...(req.readDirs?.length ? { additionalDirectories: req.readDirs } : {}),
+        ...(req.readDirs?.length || req.extraDirs?.length ? { additionalDirectories: [...(req.extraDirs ?? []), ...(req.readDirs ?? [])] } : {}),
         ...(req.claude?.mcpServers ? { mcpServers: req.claude.mcpServers as any, mcpServersDelivery: 'initialize' as const } : {}),
         canUseTool: req.chat ? chatCanUseTool : canUseTool,
         // An MCP server asks the human for input. Only the standard form mode is presented; anything else is declined.

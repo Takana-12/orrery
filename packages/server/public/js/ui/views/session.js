@@ -2,7 +2,7 @@
 import { act, confirmSent, loadTranscript, markSeen, sendMessage } from '../../logic/actions.js';
 import { composerChoice } from '../../logic/ai.js';
 import { ago, agoWord, clock, mb } from '../../logic/format.js';
-import { sessionModel } from '../../logic/selectors.js';
+import { sessionModel, workspacesOf } from '../../logic/selectors.js';
 import { store } from '../../logic/store.js';
 import { toolSummary } from '../../logic/text.js';
 import { beginVoice } from '../../logic/voice.js';
@@ -190,7 +190,7 @@ export function sessionView(id) {
           doing || waitsBg ? el('span', { class: 'note' }, word) : el('span', { class: 'sr-only' }, word), el('span', { class: 'note' }, ago(s.lifecycleSince)));
         stateEl.title = `${word}（${agoWord(s.lifecycleSince)}から）`;
         put(meta,
-          el('span', { title: 'プロジェクト' }, icon('folder', 's'), s.projectName),
+          el('span', { title: 'ワークスペース' }, icon('folder', 's'), workspacesOf(s)),
           el('span', { class: 'path', title: s.cwd }, s.cwd),
           s.worktree && el('span', { title: s.worktree.removed ? (s.worktree.keptBranch ? '作業用フォルダは片付け済み。変更はこのブランチに残っています' : '作業用フォルダは片付け済み') : `この作業専用のフォルダ（git worktree）。完了にするか片付けると自動で削除されます\n${s.worktree.path}` }, icon('branch', 's'), s.worktree.branch, s.worktree.removed ? '（片付け済み）' : ''),
           s.pullRequest && prLink(s.pullRequest),

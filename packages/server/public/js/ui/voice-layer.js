@@ -7,7 +7,7 @@ import { beginVoice, cancelVoice, confirmVoice, dropVoiceTask, endVoice, setVoic
 import { aiPicker } from './ai-picker.js';
 import { $, el, put, sync } from './dom.js';
 import { icon } from './icons.js';
-import { picker } from './menu.js';
+import { multiPicker, picker } from './menu.js';
 import { go, route } from './shell.js';
 import { wordFor } from './vocabulary.js';
 import { voiceOrb } from './voice-orb.js';
@@ -153,7 +153,9 @@ function taskRow(t) {
     onChange: (v) => setVoiceTask(t.key, { sessionId: v }),
   });
   const projects = store.state.projects.filter((p) => !p.pending);
-  const where = !reply && picker({ ic: 'folder', label: 'ワークスペース', value: t.projectId, options: projects.map((p) => ({ value: p.id, label: p.name, sub: p.rootPath })), onChange: (v) => setVoiceTask(t.key, { projectId: v }) });
+  // Workspaces tick on and off as in the new-work box: the first ticked is the main one, the rest go along with it.
+  const where = !reply && multiPicker({ ic: 'folder', label: 'ワークスペース', value: [t.projectId, ...(t.extraProjectIds ?? [])].filter(Boolean), options: projects.map((p) => ({ value: p.id, label: p.name, sub: p.rootPath })),
+    onChange: (list) => setVoiceTask(t.key, { projectId: list[0] ?? '', extraProjectIds: list.slice(1) }) });
   const who = !reply && aiPicker({ value: { provider: t.provider, model: t.model, effort: t.effort }, onChange: (c) => setVoiceTask(t.key, c) });
   const drop = reply ? 'この返信は送らない' : 'この作業は始めない';
   return el('div', { class: `voice-task${reply ? ' reply' : ''}` },

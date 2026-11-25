@@ -1,6 +1,6 @@
 // Stopping or updating the whole app: warn first, then call the logic layer.
 import { shutdownApp, startAppUpdate } from '../logic/actions.js';
-import { busyCount } from '../logic/selectors.js';
+import { busyCount, newVersionText } from '../logic/selectors.js';
 import { store } from '../logic/store.js';
 import { confirmDanger } from './confirm-dialog.js';
 
@@ -23,11 +23,15 @@ export async function askShutdown() {
 export async function askUpdate() {
   if (store.updating) return;
   const busy = busyCount(store.state);
+  const nv = store.state.newVersion;
   const ok = await confirmDanger({
     heading: 'Orreryを更新しますか？',
     lines: [
       busy ? `実行中・判断待ち・順番待ちの作業が${busy}件あります。` : null,
-      'ソースから作り直して開き直します。作っている間も使えますが、開き直す間エージェントは止まります。',
+      newVersionText(nv),
+      nv?.canPull
+        ? 'GitHub から新しい版を取り込み（git pull、必要なら npm install）、作り直して開き直します。作っている間も使えますが、開き直す間エージェントは止まります。'
+        : 'ソースから作り直して開き直します。作っている間も使えますが、開き直す間エージェントは止まります。',
       '止めた作業は、起動後に「中断」として表示され、続きを指示できます。',
     ],
     action: '更新する',

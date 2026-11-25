@@ -48,6 +48,11 @@ export interface StartSessionRequest {
   effort?: string | null;
   /** Folders outside `cwd` the agent may read without asking (files the human attached to a message). */
   readDirs?: string[];
+  /**
+   * Other workspaces' folders this work also reads and edits, besides `cwd` (the human chose several workspaces).
+   * Claude: added to its working directories. Codex: made writable in its workspace sandbox.
+   */
+  extraDirs?: string[];
   /** Project environment variables (already decrypted) for the agent's commands. Never logged by adapters. */
   env?: Record<string, string>;
   /**

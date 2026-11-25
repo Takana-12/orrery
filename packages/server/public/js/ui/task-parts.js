@@ -4,7 +4,7 @@ import { act, finishChecks, reportCommand, runCommand, runStep, setStep } from '
 import { clock, fullStamp } from '../logic/format.js';
 import { parseMarkdown } from '../logic/markdown.js';
 import { store } from '../logic/store.js';
-import { inboxStepIndexes, isBusy, openPlainStep } from '../logic/selectors.js';
+import { inboxStepIndexes, isBusy, openPlainStep, workspacesOf } from '../logic/selectors.js';
 import { confirmAction, confirmCommand } from './command-dialog.js';
 import { el, put } from './dom.js';
 import { icon } from './icons.js';
@@ -29,9 +29,9 @@ export async function finishWork(s) {
 }
 /**
  * Which workspace (project) a piece of work belongs to, shown beside its title so it need not be guessed from the title.
- * Quiet: a folder shape and the name, nothing when the work has no project name.
+ * Quiet: a folder shape and the name (and those of any other workspaces it also works in), nothing when it has none.
  */
-export const workspaceTag = (s) => s.projectName ? el('span', { class: 'ws', title: `ワークスペース: ${s.projectName}` }, icon('folder', 's'), s.projectName) : null;
+export const workspaceTag = (s) => s.projectName ? el('span', { class: 'ws', title: `ワークスペース: ${workspacesOf(s)}` }, icon('folder', 's'), workspacesOf(s)) : null;
 /** The 完了にする button of a row. */
 export const doneButton = (s, cls = '') => el('button', { class: cls || null, title: 'この作業を完了にして片付ける（いつでも戻せます）', disabled: !!s.busyWith, onclick: () => finishWork(s) }, icon('check', 's'), '完了にする');
 

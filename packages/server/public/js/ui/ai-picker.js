@@ -1,7 +1,7 @@
-// The AI chip: one control for who answers. Its menu lists the agents (Claude Code, Codex); pointing at one opens its
+// The AI chip: one control for who answers. Its menu lists the agents the human uses (設定 → 使うAI); pointing at one opens its
 // models right beside it, and picking one there is the choice. How hard the chosen model thinks is set at the foot of
 // the agents' column. Used by new work, the side chats and the settings.
-import { AGENTS, defaultChoice, ensureModels, findModel, modelsOf, stillValid, withModel } from '../logic/ai.js';
+import { defaultChoice, ensureModels, findModel, modelsOf, stillValid, usableAgents, withModel } from '../logic/ai.js';
 import { el, put } from './dom.js';
 import { icon } from './icons.js';
 import { menuItem, openMenu } from './menu.js';
@@ -95,7 +95,8 @@ export function aiPicker({ value, onChange, recall = (p) => defaultChoice(p), la
     subFor = null;
     const levels = findModel(choice.provider, choice.model)?.efforts ?? [];
     const at = levels.indexOf(choice.effort);
-    const agents = AGENTS.map((p) => {
+    // Only the subscriptions the human uses (設定 → 使うAI).
+    const agents = usableAgents().map((p) => {
       const row = el('button', { type: 'button', class: 'menu-item ai-agent', role: 'menuitemradio', 'aria-checked': String(choice.provider === p), 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'data-agent': p,
         title: `${PROVIDER[p]}（右のメニューでモデルを選ぶ）`,
         // The agent itself: the model last used with it.
@@ -126,8 +127,8 @@ export function aiPicker({ value, onChange, recall = (p) => defaultChoice(p), la
   };
 
   node.addEventListener('click', () => {
-    // Both agents' lists are asked for now, so whichever is pointed at next is (usually) already there.
-    for (const p of AGENTS) {
+    // Every listed agent's models are asked for now, so whichever is pointed at next is (usually) already there.
+    for (const p of usableAgents()) {
       if (modelsOf(p)?.status === 'ready') continue;
       ensureModels(p).then(() => {
         paint();

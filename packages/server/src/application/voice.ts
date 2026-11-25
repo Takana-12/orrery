@@ -4,7 +4,7 @@
 // own settings. Recognisers write English inside Japanese badly ("オルリー" for Orrery): the planner, and for a spoken
 // reply a tidying step, put it back into English with the help of the human's own words.
 import { basename } from 'node:path';
-import type { ProviderId, SessionLifecycle } from '#core';
+import { enabledProviders, type ProviderId, type SessionLifecycle } from '#core';
 import { SPEECH_SAMPLE_RATE } from '../infrastructure/speech.ts';
 import type { Speech } from '../infrastructure/speech.ts';
 import { VOICE_LIMITS } from '../../../provider-shared/src/voice-plan.ts';
@@ -12,7 +12,7 @@ import type { VoiceAgent, VoiceProject, VoiceSession, VoiceTask } from '../../..
 import type { Accounts } from './accounts.ts';
 import type { Assistant } from './assistant.ts';
 import { HttpError } from './errors.ts';
-import { PROVIDERS, message } from './runtime.ts';
+import { message } from './runtime.ts';
 import type { Runtime } from './runtime.ts';
 
 /** The longest recording that is read: five minutes of 16-bit mono. */
@@ -115,7 +115,8 @@ export class Voice {
     if (!state.projects.size) throw new HttpError(409, 'ワークスペースがまだありません。先にフォルダを追加してください');
 
     const auth = this.d.accounts.view();
-    const signedIn = PROVIDERS.filter((p) => auth[p]?.loggedIn !== false);
+    // Only the subscriptions the human uses (設定 → 使うAI), and of those the ones signed in.
+    const signedIn = enabledProviders(state.settings).filter((p) => auth[p]?.loggedIn !== false);
     if (!signedIn.length) throw new HttpError(409, 'サインインしているAIがありません');
     const agents: VoiceAgent[] = await Promise.all(signedIn.map(async (provider) => {
       // A list that cannot be read still leaves the agent usable with its own default model.

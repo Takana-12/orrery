@@ -4,6 +4,7 @@
 /** The sections of the settings screen, top to bottom. `id` names the anchor; `icon` and `title` are its heading. */
 export const SETTINGS_SECTIONS = [
   { id: 'look', icon: 'eye', title: '外観' },
+  { id: 'agents', icon: 'agent', title: '使うAI' },
   { id: 'work', icon: 'running', title: '作業' },
   { id: 'side-chat', icon: 'message', title: 'サイドチャット' },
   { id: 'voice', icon: 'mic', title: '音声入力' },

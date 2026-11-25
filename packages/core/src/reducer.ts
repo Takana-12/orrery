@@ -272,6 +272,7 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
         taskId: e.taskId,
         provider: e.provider,
         cwd: e.cwd,
+        ...(e.extraProjectIds?.length ? { extraProjectIds: [...e.extraProjectIds] } : {}),
         providerSessionId: null,
         model: null,
         lifecycle: 'queued',

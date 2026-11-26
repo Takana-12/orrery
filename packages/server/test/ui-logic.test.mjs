@@ -7,7 +7,7 @@ import { store } from '../public/js/logic/store.js';
 import { composerChoice, ensureModels, sessionEfforts } from '../public/js/logic/ai.js';
 import { act, startWork, addProjectFromFolder, renameProject, runStep, sendAnswer, sendMessage, setProjectApproval, setProjectDescription, setProjectPreamble, setProjectWorktree, setStep, shutdownApp, startAppUpdate, checkAppUpdate } from '../public/js/logic/actions.js';
 import { fullStamp, leftTone, stamp } from '../public/js/logic/format.js';
-import { ARCHIVE_FOLD, advanceAccordion, archiveModel, busyCount, checkGroups, inInbox, inboxModel, inboxStepIndexes, isOpen, limitsModel, newVersionText, railModel, sessionModel } from '../public/js/logic/selectors.js';
+import { ARCHIVE_FOLD, advanceAccordion, archiveModel, busyCount, checkGroups, inInbox, inboxModel, inboxStepIndexes, isOpen, limitsModel, newVersionText, railModel, sessionModel, workStepsModel } from '../public/js/logic/selectors.js';
 import { parseRoute, routeKey } from '../public/js/logic/route.js';
 import { looksLikeCommand, toolSummary } from '../public/js/logic/text.js';
 import { inline, parseMarkdown, plainText } from '../public/js/logic/markdown.js';
@@ -238,6 +238,7 @@ test('the rail and the session screen are derived from the same picture', () => 
   assert.deepEqual(group('queue'), ['q1', 'q2']);
   assert.deepEqual(group('done'), ['new', 'seen'], 'unread first');
   assert.deepEqual(rail.seenFinished.map((s) => s.id), ['seen']);
+  assert.deepEqual(rail.finishedAll.map((s) => s.id), ['new', 'seen'], 'all of the done group, for 完了にする in one go');
 
   const bad = sessionModel(state, 'bad');
   assert.equal(bad.busy, false);
@@ -553,6 +554,49 @@ test('the inbox shows a step that waits on an earlier one only once that one is 
   assert.deepEqual(inboxStepIndexes(chain), [0]);
   chain[0].done = true;
   assert.deepEqual(inboxStepIndexes(chain), [1]);
+});
+
+test('a work shows first what comes first: the things to look at appear once the action they need is ticked', () => {
+  const step = (title, extra = {}) => ({ title, detail: null, command: null, after: null, done: false, ...extra });
+  const check = { update: 'rebuild', how: '`npm run dev` で起動する', command: null };
+  const steps = [
+    step('PRをマージする'),
+    step('アプリを更新する', { prep: true, detail: check.how }),
+    step('見出しがドット書体', { check }),
+    step('スマホ幅で崩れない', { check }),
+  ];
+  const shown = (all) => workStepsModel(steps, all).rows.map((r) => r.step.title);
+  assert.deepEqual(shown(false), ['PRをマージする', 'アプリを更新する']);
+  assert.equal(workStepsModel(steps).held, 2);
+  // Every step can still be shown, those that wait marked as such.
+  assert.deepEqual(workStepsModel(steps, true).rows.map((r) => [r.step.title, r.waits]), [['PRをマージする', false], ['アプリを更新する', false], ['見出しがドット書体', true], ['スマホ幅で崩れない', true]]);
+  steps[1].done = true;
+  assert.deepEqual(shown(false), ['PRをマージする', 'アプリを更新する', '見出しがドット書体', 'スマホ幅で崩れない'], 'done steps stay, crossed out');
+  assert.equal(workStepsModel(steps).held, 0);
+  // A step with a precondition waits behind the open steps before it, as in the inbox.
+  const chain = [step('A'), step('B', { after: 'Aが済んだら' })];
+  assert.deepEqual(workStepsModel(chain).rows.map((r) => r.step.title), ['A']);
+  // The action is not an ordinary step of the inbox: it heads its project's checklist instead.
+  assert.deepEqual(inboxStepIndexes([step('アプリを更新する', { prep: true }), step('見る', { check })]), []);
+});
+
+test('the action a project checklist needs comes first, ticked for every work, and the list waits for it', () => {
+  const look = (title) => ({ title, detail: null, command: null, after: null, done: false, check: { update: 'rebuild', how: null, command: 'npm run dev' } });
+  const prep = (done = false) => ({ title: 'アプリを更新する', detail: null, command: 'npm run dev', after: null, done, prep: true });
+  const a = sess('a', { projectId: 'p', projectName: 'orrery', completion: 'human_steps', task: { humanSteps: [prep(), look('a1')] } });
+  const b = sess('b', { projectId: 'p', projectName: 'orrery', completion: 'human_steps', task: { humanSteps: [prep(true), look('b1')] } });
+  let [g] = checkGroups([a, b]);
+  assert.equal(g.hasPrep, true);
+  assert.equal(g.prepped, false, 'one work still has the action to do');
+  assert.deepEqual(g.works.map((w) => [w.session.id, w.preps.map((p) => p.index), w.items.map((i) => i.index)]), [['a', [0], [1]], ['b', [0], [1]]]);
+  a.task.humanSteps[0].done = true;
+  [g] = checkGroups([a, b]);
+  assert.equal(g.prepped, true);
+  // A list read before the action was a step of its own has no item for it, and its checklist shows at once.
+  const old = sess('c', { projectId: 'q', projectName: 'old', completion: 'human_steps', task: { humanSteps: [look('c1')] } });
+  [g] = checkGroups([old]);
+  assert.equal(g.hasPrep, false);
+  assert.equal(g.prepped, true);
 });
 
 // ---- the human's standing preferences (こだわり) ----

@@ -173,6 +173,8 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
       } else if (added.length) {
         // What still has to happen replaces the step; the run that led to it is kept on the first one, so it can be seen.
         added[0]!.run = st.run;
+        // What replaces the action the checks need first is still needed first.
+        if (st.prep) for (const x of added) x.prep = true;
         t.humanSteps.splice(e.index, 1, ...added);
       }
       return state;

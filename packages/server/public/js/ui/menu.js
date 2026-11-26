@@ -81,10 +81,12 @@ export function picker({ ic, label, options, value, onChange, iconOnly = false }
 }
 
 /**
- * A chip for "any number of these": each item in its menu is ticked or not, and a click flips it at once; the menu
- * stays open so several can be ticked in a row. The chip shows the first ticked (the main one) and how many more.
- * options: [{ value, label, sub? }]. actions: items at the foot that do something else ({ label, icon, onpick }); they
- * close the menu. Returns { node, get, set(values, options?) }. `get()` keeps the order things were ticked in.
+ * A chip for "one, or several when asked": a plain click picks that item alone and closes the menu, as any picker does.
+ * A click with Ctrl or Shift held flips just that item and leaves the menu open, so several can be ticked in a row.
+ * The chip shows the first ticked (the main one) and how many more.
+ * options: [{ value, label, sub? }]. actions: items at the foot that do something else ({ label, icon, onpick(adding) });
+ * they close the menu, and `adding` says Ctrl or Shift was held. Returns { node, get, set(values, options?) }. `get()`
+ * keeps the order things were ticked in.
  */
 export function multiPicker({ ic, label, options, value, onChange, actions = [], empty = '' }) {
   let opts = options;
@@ -100,19 +102,24 @@ export function multiPicker({ ic, label, options, value, onChange, actions = [],
     node.title = names.length ? `${label}: ${names.join('、')}` : label;
     node.setAttribute('aria-label', node.title);
   };
-  const flip = (x) => {
-    vals = vals.includes(x) ? vals.filter((y) => y !== x) : [...vals, x];
+  const adding = (e) => !!(e?.ctrlKey || e?.metaKey || e?.shiftKey);
+  const pick = (x, e) => {
+    vals = adding(e) ? (vals.includes(x) ? vals.filter((y) => y !== x) : [...vals, x]) : [x];
     paint();
     onChange?.([...vals]);
   };
   node.addEventListener('click', () => openMenu(node, ({ close, repaint }) => [
     opts.map((o, i) => {
-      const b = menuItem({ ic: o.icon, label: o.label, sub: o.sub, checked: vals.includes(o.value), n: i < 9 ? i + 1 : null, onpick: () => { flip(o.value); repaint(`[data-v="${CSS.escape(o.value)}"]`); } });
+      const b = menuItem({ ic: o.icon, label: o.label, sub: o.sub, checked: vals.includes(o.value), n: i < 9 ? i + 1 : null, onpick: (e) => {
+        const more = adding(e);
+        pick(o.value, e);
+        if (more) repaint(`[data-v="${CSS.escape(o.value)}"]`); else close();
+      } });
       b.role = 'menuitemcheckbox';
       b.dataset.v = o.value;
       return b;
     }),
-    actions.map((a, i) => [i === 0 && opts.length > 0 && el('hr', {}), menuItem({ ic: a.icon, label: a.label, onpick: () => { close(); a.onpick(); } })]),
+    actions.map((a, i) => [i === 0 && opts.length > 0 && el('hr', {}), menuItem({ ic: a.icon, label: a.label, onpick: (e) => { close(); a.onpick(adding(e)); } })]),
   ], label));
   paint();
   return { node, get: () => [...vals], set: (x, next) => { vals = [...x]; if (next) opts = next; paint(); } };

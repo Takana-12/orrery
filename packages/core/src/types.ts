@@ -69,6 +69,11 @@ export interface HumanStep {
   after?: string | null;
   /** Set when the step is something to look at once the change is brought in (see HumanCheck). Null: an ordinary step. */
   check?: HumanCheck | null;
+  /**
+   * The step is the action that brings the change in (rebuild, reload, the command), which the checks after it need
+   * first. It is a step of its own, ticked like any other, and the checks wait for it.
+   */
+  prep?: boolean;
   done: boolean;
   /** The last time the human ran this step's command from Orrery, and what reading its output concluded. */
   run?: HumanStepRun | null;
@@ -97,6 +102,7 @@ export interface HumanStepInput {
   command: string | null;
   after?: string | null;
   check?: HumanCheck | null;
+  prep?: boolean;
 }
 
 /**

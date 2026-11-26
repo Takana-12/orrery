@@ -36,6 +36,11 @@ export const store = {
   /** Sessions whose row in the inbox has its reply box open. */
   replying: new Set(),
   showAllFinished: false,
+  /**
+   * Works (by session id) and project checklists (`look:<projectId>`) whose every step is shown, also those that wait on
+   * an earlier one. Otherwise only what can be done now shows, and the rest once that is ticked.
+   */
+  everyStep: new Set(),
   /** Requests expanded in the inbox. One opens by itself; answering it opens the next. Several may be open at once. */
   expanded: new Set(),
   /** The human closed every request on purpose: do not reopen one by itself. */

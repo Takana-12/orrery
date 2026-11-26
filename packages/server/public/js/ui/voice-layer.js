@@ -1,9 +1,10 @@
-// The voice layer: one level above the screens. While it is open, everything on the page that is not the background
-// dissolves (app.css, body[data-voice]) and only this is left: the sphere, what was heard, and the work it became.
-// Opened by holding Space (a short press keeps its old meaning) or by the microphone chip of the new-work box or of a
+// The voice layer: one level above the screen on the right. While it is open, the rail stays in view (not operable) and
+// everything right of it dissolves (app.css, body[data-voice]); only this is left there: the sphere, what was heard,
+// and the work it became.
+// Opened by holding Space (a short press, released sooner, keeps its old meaning) or by the microphone chip of the new-work box or of a
 // piece of work's reply box. Opened on a piece of work's screen, what is said is a reply to it.
 import { store } from '../logic/store.js';
-import { beginVoice, cancelVoice, confirmVoice, dropVoiceTask, endVoice, setVoicePrompt, setVoiceTask, voiceLevel, voiceReplyTargets, voiceToBox } from '../logic/voice.js';
+import { beginVoice, cancelVoice, confirmVoice, coolVoice, dropVoiceTask, endVoice, setVoicePrompt, setVoiceTask, voiceLevel, voiceReplyTargets, voiceToBox, warmVoice } from '../logic/voice.js';
 import { aiPicker } from './ai-picker.js';
 import { $, el, put, sync } from './dom.js';
 import { icon } from './icons.js';
@@ -17,27 +18,43 @@ const HOLD_MS = 350;
 /** Space is down, from a press this module took notice of. */
 let held = false;
 let timer = null;
+/** Where the press takes the page if it turns out short (the home screen's new-work box), or null. */
+let shortGo = null;
 
 /** The new-work box or a piece of work's reply box, with nothing written in it: a space typed there means nothing. */
 const boxEmpty = (a) => !!a?.matches?.('form.new textarea, .session .composer textarea') && !a.value.trim();
 
-function arm() {
+/**
+ * Space went down: it is a hold if it is still down after HOLD_MS, else a short press that goes to `goTo` when the key
+ * comes up. Nothing moves meanwhile, so a hold speaks over the screen it began on. The microphone opens at once: what
+ * is said from the moment the key went down is kept.
+ */
+function arm(goTo = null) {
   held = true;
+  shortGo = goTo;
   clearTimeout(timer);
   // What the words are for is decided where the key went down: on a piece of work's screen they answer it (held again
-  // in the open layer, they keep what they were for). The short press that goes on may take the page elsewhere first.
+  // in the open layer, they keep what they were for).
   const r = route();
   const replyTo = store.voice.phase !== 'off' ? store.voice.replyTo : r.view === 'session' ? r.id : '';
+  warmVoice();
   timer = setTimeout(() => {
     timer = null;
+    shortGo = null;
     if (!held) return;
     // Spaces that slipped into the empty box while the key was held (an IME's wide space) are not part of a request.
     const a = document.activeElement;
     if (boxEmpty(a) && a.value) { a.value = ''; a.dispatchEvent(new Event('input', { bubbles: true })); }
     beginVoice('hold', { replyTo });
-    // The short press opened home on the way: the work being answered stays on screen under the layer.
-    if (replyTo && store.voice.replyTo === replyTo && route().id !== replyTo) go(`#/s/${replyTo}`);
   }, HOLD_MS);
+}
+
+/** The key is no longer down, or will never be seen coming up: no hold, no short press. */
+function disarm() {
+  held = false;
+  shortGo = null;
+  clearTimeout(timer);
+  timer = null;
 }
 
 /**
@@ -49,14 +66,16 @@ export function voiceKey(e, typing) {
   const space = e.code === 'Space' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
   if (v.phase === 'off') {
     if (!space) return false;
-    // The key is still down from the press that opened home: it must not type spaces into the box it focused.
+    // The key is still down from a press taken here: its repeats are not spaces.
     if (e.repeat) return held ? (e.preventDefault(), true) : false;
     const a = document.activeElement;
     if (/^(radio|checkbox)$/.test(a?.type ?? '')) return false;
     if (typing && !boxEmpty(a)) return false; // in a text box, a space is a space
-    arm();
-    if (!typing) return false; // the short press goes on to open home, as before
-    e.preventDefault(); // already in the empty new-work box: a leading space means nothing there
+    // Out of any box, a short press opens home with the cursor in the new-work box, as it always did, but only once the
+    // key comes up. (Taking the key here also stops it re-pressing whatever button has focus.) Already in an empty box,
+    // a leading space means nothing there.
+    arm(typing ? null : '#/new');
+    e.preventDefault();
     return true;
   }
   // Open: the keyboard belongs to the layer, nothing reaches the screens under it.
@@ -94,18 +113,24 @@ export function voiceKey(e, typing) {
 
 function voiceKeyup(e) {
   if (e.code !== 'Space') return;
-  held = false;
-  clearTimeout(timer);
-  timer = null;
+  const short = timer !== null;
+  const goTo = shortGo;
+  disarm();
+  if (short) {
+    // Up before it was a hold: not speech. The microphone opened for it closes, and the short press does what it does.
+    coolVoice();
+    if (goTo) { e.preventDefault(); go(goTo); }
+    return;
+  }
   if (store.voice.phase === 'listening' && store.voice.mode === 'hold') endVoice();
 }
 
 /** The window lost the keyboard while the key was down: its release will never arrive. */
 function voiceBlur() {
   if (!held) return;
-  held = false;
-  clearTimeout(timer);
-  timer = null;
+  const short = timer !== null;
+  disarm();
+  if (short) return coolVoice();
   if (store.voice.phase !== 'listening' || store.voice.mode !== 'hold') return;
   if (store.voice.live) endVoice();
   else cancelVoice();

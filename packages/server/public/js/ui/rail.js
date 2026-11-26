@@ -1,10 +1,11 @@
 // Rail: the strip board. Every piece of work that is not put away, as one strip, grouped by what it waits for.
-import { archiveAll, dismissSending, dropArrivedSending, loadUsage } from '../logic/actions.js';
+import { acceptAll, archiveAll, dismissSending, dropArrivedSending, loadUsage } from '../logic/actions.js';
 import { ago, leftTone, mb, stamp } from '../logic/format.js';
 import { usableAgents } from '../logic/ai.js';
 import { BATTERY_CELLS, limitsModel, newVersionText, quietFor, railModel, workspacesOf } from '../logic/selectors.js';
 import { store } from '../logic/store.js';
 import { askUpdate } from './app-control.js';
+import { confirmAction } from './command-dialog.js';
 import { $, el, put, sync } from './dom.js';
 import { icon } from './icons.js';
 import { loginNotice } from './login-notice.js';
@@ -193,6 +194,28 @@ export function renderRail(r) {
           await archiveAll(list);
         });
         sec.more.after(sec.tidy);
+      }
+      // Every finished piece of work (also the ones folded away) called done at once. Work an action is still
+      // going on (busyWith) is left alone.
+      const doable = model.finishedAll.filter((x) => !x.busyWith);
+      if (!sec.acceptAll) {
+        sec.acceptAll = el('button', { class: 'quiet more accept-all', title: '返答が完了した作業をすべて完了にして片付けます（いつでも戻せます）' });
+        sec.acceptAll.addEventListener('click', async () => {
+          const list = sec.acceptAll._list ?? [];
+          if (!list.length || !(await confirmAction({
+            heading: `${list.length}件をすべて完了にします`,
+            text: '返答が完了した作業をすべて完了にして片付けます。会話も履歴も消えず、アーカイブからいつでも作業に戻せます。',
+            ok: 'すべて完了にする',
+          }))) return;
+          acceptAll(list);
+        });
+        sec.head.after(sec.acceptAll);
+      }
+      sec.acceptAll._list = doable;
+      sec.acceptAll.hidden = !doable.length;
+      if (sec.acceptAll.dataset.n !== String(doable.length)) {
+        sec.acceptAll.dataset.n = doable.length;
+        put(sec.acceptAll, icon('check', 's'), `${doable.length}件をすべて完了にする`);
       }
       sec.tidy._list = seen;
       sec.tidy.hidden = seen.length < 2;

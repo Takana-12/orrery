@@ -60,14 +60,15 @@ export function newWorkForm() {
     }
     syncForm();
   };
-  // "別のフォルダを開く" goes straight to Explorer; a folder chosen there is ticked alongside the others.
+  // "別のフォルダを開く" goes straight to Explorer; a folder chosen there becomes the one workspace, or is ticked alongside
+  // the others when Ctrl or Shift was held, as with the items above it.
   const project = multiPicker({
     ic: 'folder', label: 'ワークスペース', value: chosen, options: projectOptions(),
     onChange: (list) => choose(list),
-    actions: [{ label: '別のフォルダを開く', icon: 'plus', onpick: () => openFolder() }],
+    actions: [{ label: '別のフォルダを開く', icon: 'plus', onpick: (adding) => openFolder(adding) }],
   });
   let picking = false;
-  async function openFolder() {
+  async function openFolder(adding = false) {
     if (picking) return;
     picking = true;
     err.textContent = '';
@@ -77,13 +78,14 @@ export function newWorkForm() {
     const path = r.body.path;
     if (!path) return; // cancelled
     const known = store.state.projects.find((p) => p.rootPath.toLowerCase() === path.toLowerCase());
-    if (known) return choose([...chosen, known.id]);
+    const keep = adding ? chosen : [];
+    if (known) return choose([...keep, known.id]);
     const again = picked.find((x) => x.path.toLowerCase() === path.toLowerCase());
-    if (again) return choose([...chosen, `path:${again.path}`]);
+    if (again) return choose([...keep, `path:${again.path}`]);
     const mine = { path };
     const v = `path:${path}`;
     picked.push(mine);
-    choose([...chosen, v]);
+    choose([...keep, v]);
     const reg = await registerFolder(path);
     if (!picked.includes(mine)) return;
     if (reg.status !== 200) {

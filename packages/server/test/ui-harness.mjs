@@ -67,6 +67,12 @@ function stub() {
       { title: '進行中の作業の行が、プレビューの長さによらず1行のまま変わらない', detail: 'ホームの「進行中の作業」。作業の進み具合の文が切り替わる数秒ごとに見る', command: null, after: null, done: false, check: { update: 'rebuild', how: '設定 → アプリの更新 の「更新」を押す', command: null } },
       { title: 'はみ出したプレビューの末尾が「…」で切れている', detail: '同じ行の右側。マウスを重ねると全文が出る', command: null, after: null, done: true, check: { update: 'rebuild', how: '設定 → アプリの更新 の「更新」を押す', command: null } },
     ] }) }),
+    // The action the checks need first, as a step of its own: the checks wait until it is ticked.
+    sess('s18', { taskTitle: 'ポートフォリオの書体変更', projectName: 'ledger', projectId: 'p2', cwd: 'C:\\work\\ledger', completion: 'human_steps', task: task({ checkCommand: null, humanSteps: [
+      { title: 'アプリを更新する', detail: '変更を取り込むため、返答にある `npx next dev --webpack` で開発サーバーを起動し、ブラウザでトップを開く', command: null, after: null, done: false, prep: true },
+      { title: '見出し・日付・ラベル・ナビなどの短い文字がドット書体になっている', detail: 'トップ、作品一覧、作品詳細、経歴の各ページの見出し・日付・ラベル・ナビ', command: null, after: null, done: false, check: { update: 'rebuild', how: '変更を取り込むため、返答にある `npx next dev --webpack` で開発サーバーを起動し、ブラウザでトップを開く', command: null } },
+      { title: 'スマホ幅で、レイアウトが崩れていない', detail: 'ブラウザの表示幅をスマホ幅に狭めたトップ、作品詳細、経歴の各ページ', command: null, after: null, done: false, check: { update: 'rebuild', how: '変更を取り込むため、返答にある `npx next dev --webpack` で開発サーバーを起動し、ブラウザでトップを開く', command: null } },
+    ] }) }),
     sess('s15', { taskTitle: 'テストの完了を待っている作業', lifecycle: 'running', lifecycleSince: NOW - 4 * min, completion: 'working', lastText: 'E2Eテストをバックグラウンドで回しています。終わったら報告します。', background: ['npm run e2e'], awaitingBackground: true }),
   ];
   const item = (id, sessionId, o) => {

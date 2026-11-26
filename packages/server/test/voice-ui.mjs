@@ -138,8 +138,10 @@ async function verify() {
       assert.equal(await run('document.body.dataset.voice'), 'on');
       assert.equal(await run('document.querySelector(".app").inert'), true, 'the screens under the layer take no input');
       await sleep(2200);
-      assert.equal(await opacity('.app'), '0', 'everything that is not the background has dissolved');
+      assert.equal(await opacity('.main'), '0', 'the screen on the right has dissolved');
+      assert.equal(await opacity('.rail'), '1', 'the rail stays in view');
       assert.equal(await opacity('.voice'), '1');
+      assert.equal(await run(`Math.round(document.querySelector('.voice').getBoundingClientRect().left) === Math.round(document.querySelector('.rail').getBoundingClientRect().right)`), true, 'the layer starts where the rail ends');
       await shot(`${theme}-1-listening`);
       // Released: read, then planned; each step shows at once.
       key('keyUp', 'Space');
@@ -161,7 +163,7 @@ async function verify() {
       await until(() => started.length === before + 2, 'both pieces of work to start');
       assert.equal(await voice('phase'), 'off');
       await sleep(900);
-      assert.equal(await opacity('.app'), '1', 'the screen is back');
+      assert.equal(await opacity('.main'), '1', 'the screen is back');
       await shot(`${theme}-5-back`);
       await run('document.querySelector("form.new textarea").focus()');
     }
@@ -231,6 +233,40 @@ async function verify() {
     key('keyUp', 'Enter');
     await until(() => replies.length === 2, 'the rewritten reply to be sent');
     assert.deepEqual(replies[1], { sessionId: work.id, text: '書き直した返信' });
+
+    // Held on the work's screen with nothing focused: the screen stays where it is (no trip to home on the way), and
+    // what is said from the moment the key went down is kept.
+    await run('document.activeElement?.blur()');
+    const heardBefore = heard.length;
+    const pressed = Date.now();
+    key('keyDown', 'Space');
+    await sleep(150);
+    assert.equal(await run('location.hash'), `#/s/${work.id}`, 'a press not yet known to be short leaves the screen alone');
+    await until(async () => (await voice('phase')) === 'listening' && (await voice('live')), 'the microphone (held on the work)');
+    assert.equal(await run('location.hash'), `#/s/${work.id}`, 'held, it speaks over the work it began on');
+    assert.equal(await voice('replyTo'), work.id);
+    await sleep(Math.max(0, pressed + 1000 - Date.now()));
+    const held = (Date.now() - pressed) / 1000;
+    key('keyUp', 'Space');
+    await until(() => heard.length === heardBefore + 1, 'the recording held on the work');
+    const kept = heard.at(-1) / 16000;
+    assert.ok(kept >= held - 0.25, `the recording starts with the key, not after the hold is certain: ${kept}s of ${held}s kept`);
+    await until(async () => (await voice('phase')) === 'review', 'the reply (held on the work)');
+    key('keyDown', 'Escape');
+    key('keyUp', 'Escape');
+    await until(async () => (await voice('phase')) === 'off', 'Esc to close');
+    assert.equal(await run('location.hash'), `#/s/${work.id}`);
+    // A short press there still opens home, once the key comes up.
+    await run('document.activeElement?.blur()');
+    key('keyDown', 'Space');
+    await sleep(100);
+    assert.equal(await run('location.hash'), `#/s/${work.id}`, 'not before the key comes up');
+    key('keyUp', 'Space');
+    await until(() => run('!!document.activeElement?.matches("form.new textarea")'), 'home with the new-work box focused');
+    await sleep(500);
+    assert.equal(await voice('phase'), 'off', 'a short press does not open voice input');
+    await run(`location.hash = '#/s/${work.id}'`);
+    await until(() => run('!!document.querySelector(".session .composer textarea")'), 'the work screen again');
 
     // Spoken elsewhere: the planner is shown the work going on and decides which part answers it.
     await run('location.hash = "#/"');

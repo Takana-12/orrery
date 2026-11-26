@@ -94,6 +94,8 @@ async function actOnMany(sessions, action) {
 export const markAllSeen = (sessions) => actOnMany(sessions, 'seen');
 /** Put several finished sessions away. */
 export const archiveAll = (sessions) => actOnMany(sessions, 'archive');
+/** Call several finished sessions done (each is put away, and can be brought back). */
+export const acceptAll = (sessions) => actOnMany(sessions, 'accept');
 
 let outboxId = 0;
 /**

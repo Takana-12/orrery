@@ -116,3 +116,29 @@ test('words that answer work already going on become a reply to it; a reply to w
   await new VoicePlanner(async (...args) => (calls.push(args), '{"tasks": []}')).plan({ ...input, sessions: [] });
   assert.ok(!String(calls[1]![1]).includes('<進行中の作業>'), 'no open work, no section');
 });
+
+test('only the newest model of each line is offered or chosen: never Opus 4.8 when Opus 5.5 is there', async () => {
+  const m = (id: string, label: string) => ({ id, label, description: '', efforts: ['low', 'medium', 'high'], isDefault: false, defaultEffort: null });
+  // The shape Claude Code's own list has: aliases for the newest, then older generations by full id.
+  const claude = [m('opus', 'Opus 5.5'), m('fable', 'Fable 5.2'), m('sonnet', 'Sonnet 5.5'), m('haiku', 'Haiku 5.5'), m('claude-fable-5-1', 'Fable 5.1'), m('claude-haiku-4-5-20251001', 'Haiku 4.5'), m('claude-sonnet-5', 'Sonnet 5'), m('claude-opus-5', 'Opus 5'), m('claude-opus-4-8', 'Opus 4.8'), m('claude-sonnet-4-6', 'Sonnet 4.6')];
+  const codex = [m('gpt-5.2-codex', 'gpt-5.2-codex'), m('gpt-5.1-codex', 'gpt-5.1-codex'), m('gpt-5.1-codex-mini', 'gpt-5.1-codex-mini'), m('gpt-5.2', 'gpt-5.2'), m('custom', 'Custom')];
+  const latest: VoicePlanInput = {
+    ...input,
+    projects: [{ id: 'p1', name: 'orrery', path: 'C:\work\orrery', description: '', recent: [], usual: { provider: 'claude', model: 'claude-opus-4-8' } }],
+    agents: [{ provider: 'claude', models: claude }, { provider: 'codex', models: codex }],
+    defaultProjectId: 'p1',
+  };
+  let shown = '';
+  const r = await new VoicePlanner(async (_c, prompt) => {
+    shown = String(prompt);
+    return JSON.stringify({ tasks: [
+      { project: 'p1', agent: 'claude', model: 'claude-opus-4-8', effort: 'high', prompt: 'a' }, // an old generation -> the newest Opus, the effort kept
+      { project: 'p1', agent: 'claude', prompt: 'b' }, // the workspace's usual is Opus 4.8 -> still the newest Opus
+      { project: 'p1', agent: 'claude', model: 'sonnet', effort: 'low', prompt: 'c' },
+      { project: 'p1', agent: 'codex', model: 'gpt-5.1-codex', prompt: 'd' }, // -> not offered: Codex's newest
+    ] });
+  }).plan(latest);
+  assert.deepEqual(r?.tasks.map((t) => `${t.model}/${t.effort}`), ['opus/high', 'opus/medium', 'sonnet/low', 'gpt-5.2-codex/medium']);
+  for (const id of ['opus: Opus 5.5', 'fable: Fable 5.2', 'sonnet: Sonnet 5.5', 'haiku: Haiku 5.5', 'gpt-5.2-codex', 'gpt-5.1-codex-mini', 'gpt-5.2:', 'custom: Custom']) assert.ok(shown.includes(id), `offered: ${id}`);
+  for (const id of ['claude-opus-4-8', 'claude-opus-5:', 'claude-fable-5-1', 'claude-haiku-4-5', 'claude-sonnet-5:', 'claude-sonnet-4-6', 'gpt-5.1-codex:']) assert.ok(!shown.includes(id), `not offered: ${id}`);
+});

@@ -96,6 +96,7 @@ const CLAUDE_MODEL_RULE = [
   '- Sonnet: ほんとうに細かい改善だけ（1か所の文言や値を変える、簡単なボタンを1つ足す、など数行で終わるもの）。',
   '- Opus: それ以外のふつうの作業と重めの作業はすべてOpus（不具合の調査や修正、機能の追加、リファクタ、設計の相談など）。迷ったらOpus。',
   '- Fable: よほどのことがない限り使わない。新しいアプリを企画して実装まで全部やる、のような非常に大規模な作業のときだけ。',
+  '<AI>に載っているのは各系統の最新版だけ。その中から選ぶ。',
   '思考量: Sonnetの細かい改善は低〜中、Opusはふつう中、原因不明の不具合や設計など難しいものは高。',
 ].join('\n');
 
@@ -133,6 +134,41 @@ const isOpus = (m: VoiceAgent['models'][number]): boolean => /opus/i.test(`${m.i
 function fallbackModel(agent: VoiceAgent, usual: string): VoiceAgent['models'][number] | undefined {
   const ok = agent.models.filter((m) => !isFable(m));
   return ok.find((m) => m.id === usual) ?? ok.find((m) => m.id === 'opus') ?? ok.find(isOpus) ?? ok.find((m) => m.isDefault) ?? ok[0] ?? agent.models[0];
+}
+
+type VoiceModel = VoiceAgent['models'][number];
+
+/** The version in a model's name ('Opus 5.5' -> [5, 5], 'gpt-5.1-codex' -> [5, 1]); null when the name has none. */
+const versionOf = (label: string): number[] | null => label.match(/\d+(?:\.\d+)*/)?.[0].split('.').map(Number) ?? null;
+/** The line of models a name belongs to, its version taken out ('Opus 5.5' -> 'opus #', 'gpt-5.1-codex-mini' -> 'gpt-#-codex-mini'). */
+const familyOf = (label: string): string => label.replace(/\d+(?:\.\d+)*/, '#').trim().toLowerCase();
+function compareVersions(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+/**
+ * Only the newest model of each line (Opus, Sonnet, Haiku, Fable, each gpt-…-codex variant): voice work is never given
+ * an older generation (Opus 4.8 when Opus 5.5 is offered) by the planner or by a fallback. Read from the name the agent
+ * shows, since ids are aliases ('opus') or dated ids ('claude-haiku-4-5-20251001'). A model whose name has no version is
+ * kept as it is.
+ */
+export function latestModels(models: VoiceModel[]): VoiceModel[] {
+  const newest = new Map<string, number[]>();
+  for (const m of models) {
+    const v = versionOf(m.label);
+    if (!v) continue;
+    const f = familyOf(m.label);
+    const cur = newest.get(f);
+    if (!cur || compareVersions(v, cur) > 0) newest.set(f, v);
+  }
+  return models.filter((m) => {
+    const v = versionOf(m.label);
+    return !v || compareVersions(v, newest.get(familyOf(m.label))!) === 0;
+  });
 }
 
 /**
@@ -175,6 +211,11 @@ export class VoicePlanner {
    * effort. Null on any problem (no sign-in, time-out, an answer that is not the JSON asked for).
    */
   async plan(input: VoicePlanInput, choice: PreferenceModelChoice = { model: 'haiku', effort: '' }): Promise<{ tasks: VoiceTask[] } | null> {
+    // The planner chooses, and a fallback lands, only among the newest model of each line. A workspace's usual model
+    // of an older generation is not shown either: it would only pull the planner back to it.
+    const agents = input.agents.map((a) => ({ ...a, models: latestModels(a.models) }));
+    const offered = (u: VoiceProject['usual']): boolean => !u?.model || !!agents.find((a) => a.provider === u.provider)?.models.some((m) => m.id === u.model);
+    input = { ...input, agents, projects: input.projects.map((p) => (offered(p.usual) ? p : { ...p, usual: { provider: p.usual!.provider, model: '' } })) };
     const text = await this.askHelper(
       choice,
       [

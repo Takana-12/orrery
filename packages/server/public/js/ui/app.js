@@ -91,7 +91,8 @@ function onKey(e) {
   const a = document.activeElement;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(a?.tagName ?? '') && !/^(radio|checkbox)$/.test(a?.type ?? '');
   if (document.querySelector('.menu') || store.shuttingDown) return;
-  // Voice input: holding Space speaks (a short press is still the shortcut below); while its layer is open, every key is its own.
+  // Voice input: Space is its own (held, it speaks; released sooner, it opens home with the new-work box ready, on the
+  // key's release); while its layer is open, every key is its own.
   if (voiceKey(e, typing)) return;
   // Ctrl+M opens a side chat from anywhere, even while typing (Ctrl+A stays "select all").
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'm') {
@@ -123,8 +124,8 @@ function onKey(e) {
   if (e.key === 'Enter' && e.ctrlKey && current) return void current.querySelector('[data-submit]')?.click();
   if (e.key === 'Enter' && !typing && current === a && current?.dataset.collapsed) { e.preventDefault(); return void current.querySelector('.tg')?.click(); }
   if (typing || e.ctrlKey || e.altKey || e.metaKey) return;
-  // Space and n both open the home screen from anywhere with the cursor already in the new-work box; i opens it as it is.
-  // (Space also stops re-pressing whatever button has focus.) Held, Space opens voice input instead (voice-layer.js).
+  // n opens the home screen from anywhere with the cursor already in the new-work box (as a short Space press does,
+  // voice-layer.js; Shift+Space does it at once); i opens it as it is.
   if (e.key === ' ' && !/^(radio|checkbox)$/.test(a?.type ?? '')) { go('#/new'); e.preventDefault(); }
   else if (e.key === 'n') { go('#/new'); e.preventDefault(); }
   else if (e.key === 'i') { go('#/'); e.preventDefault(); }

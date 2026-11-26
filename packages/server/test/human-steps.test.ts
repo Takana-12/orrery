@@ -45,6 +45,14 @@ test('a command that ran but left work: the step is replaced by what is left, an
   assert.deepEqual(t.accepted, []);
 });
 
+test('what replaces the action the checks need first is still needed first', async () => {
+  const t = setup({ done: false, note: 'ポートが使用中', steps: [{ title: '使用中のサーバーを止める', detail: null, command: null, after: null }] });
+  const check = { update: 'rebuild' as const, how: null, command: 'node -e "1"' };
+  t.core.setHumanSteps(t.id, [{ title: 'アプリを更新する', detail: null, command: 'node -e "1"', prep: true }, { title: '見る', detail: null, command: null, check }]);
+  await t.sessions.runForHuman(t.id, 'node -e "1"', 'run-prep01');
+  assert.deepEqual(t.steps().map((x) => [x.title, !!x.prep]), [['使用中のサーバーを止める', true], ['見る', false]]);
+});
+
 test('the last step done by its command finishes the work; without the model, the exit code decides', async () => {
   const t = setup(null);
   t.core.setHumanSteps(t.id, [{ title: 'run', detail: null, command: 'node -e "0"' }]);

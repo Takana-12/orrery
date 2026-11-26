@@ -14,7 +14,7 @@ function questionBody(item) {
   let n = 0;
   const blocks = item.questions.map((q, qi) => {
     const d = draft[q.id] ?? (draft[q.id] = { picked: new Set(), free: '' });
-    return el('div', {},
+    return el('div', { class: 'qblock' },
       el('div', { class: 'ask' }, q.text, q.optional && el('span', { class: 'opt-mark' }, '任意')),
       q.options.map((o) => {
         const key = ++n;
@@ -35,8 +35,10 @@ function questionBody(item) {
       })());
   });
   const submit = () => submitAnswers(item);
+  // A summary that only repeats the questions below (a reply read as several questions) is not shown again.
+  const repeatsQuestions = item.summary === item.questions.map((q) => q.text).join(' / ');
   return [
-    (item.questions.length > 1 || (item.allowDecline && item.summary !== item.questions[0]?.text)) && el('div', { class: 'note' }, item.summary),
+    !repeatsQuestions && (item.questions.length > 1 || (item.allowDecline && item.summary !== item.questions[0]?.text)) && el('div', { class: 'note' }, item.summary),
     blocks,
     el('div', { class: 'acts' },
       item.allowDecline && el('button', { class: 'danger', disabled: locked, onclick: () => sendAnswer(item, { kind: 'decline' }) }, icon('x', 's'), '答えない'),
@@ -116,7 +118,7 @@ export function ticket(item, { linkToSession = true, collapsible = false } = {})
   if (collapsible) head.addEventListener('click', (e) => { if (!e.target.closest('button')) toggle(); });
   if (!isExpanded) {
     return el('section', { class: `ticket ${item.status} collapsed`, 'data-item': item.id, 'data-collapsed': '1', tabindex: '-1', 'aria-label': `${kind.word}: ${item.summary}（閉じています）` },
-      head, el('div', { class: 'ticket-sum', onclick: toggle }, item.type === 'user_question' ? (item.questions[0]?.text ?? item.summary) : (item.approval?.subject?.split('\n')[0] || item.summary)));
+      head, el('div', { class: 'ticket-sum', onclick: toggle }, item.type === 'user_question' ? (item.questions.length > 1 ? item.summary : (item.questions[0]?.text ?? item.summary)) : (item.approval?.subject?.split('\n')[0] || item.summary)));
   }
   return el('section', { class: `ticket ${item.status}`, 'data-item': item.id, tabindex: '-1', 'aria-label': `${kind.word}: ${item.summary}` },
     head,

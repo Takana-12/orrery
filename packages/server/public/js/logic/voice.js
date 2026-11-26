@@ -18,7 +18,7 @@
 import { api, upload } from './api.js';
 import { sendMessage, startWork } from './actions.js';
 import { store } from './store.js';
-import { micProblem, openMic } from './voice-capture.js';
+import { micGranted, micProblem, openMic } from './voice-capture.js';
 
 /** A hold shorter than this, or a recording this quiet, is not a request: the layer just closes. */
 const MIN_SECONDS = 0.4;
@@ -30,8 +30,13 @@ let run = 0;
 let mic = null;
 let limit = null;
 let taskKey = 0;
-/** Swapped by tests: opens the microphone. */
-export const voiceIo = { openMic };
+/** Swapped by tests: opens the microphone; says whether it opens without asking. */
+export const voiceIo = { openMic, micGranted };
+/** A microphone opened the moment Space went down, before it is known to be a hold: what is said from then on is kept. */
+let early = null;
+let earlyTimer = null;
+/** An early microphone not taken by a start within this long is closed again. */
+const EARLY_MS = 3000;
 
 const closed = () => ({ phase: 'off', mode: 'hold', live: false, text: '', tasks: [], error: '', replyTo: '' });
 const set = (patch) => {
@@ -55,18 +60,46 @@ export function voiceReplyTargets(keep = '') {
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 }
 
+const busy = () => store.voice.phase === 'listening' || store.voice.phase === 'thinking' || store.shuttingDown;
+const shut = (opening) => void opening?.then((m) => m.cancel(), () => {});
+const takeEarly = () => {
+  clearTimeout(earlyTimer);
+  const p = early;
+  early = null;
+  return p;
+};
+
+/**
+ * Space went down and may be held: open the microphone now, so the first words are not lost to the wait for the hold
+ * and to the microphone's own start. Only where it opens without asking (a short press must never bring up a prompt).
+ * Taken by the next beginVoice; released sooner, coolVoice closes it.
+ */
+export function warmVoice() {
+  if (early || busy() || !voiceIo.micGranted()) return;
+  early = voiceIo.openMic();
+  early.catch(() => {}); // the start that takes it says what went wrong
+  earlyTimer = setTimeout(coolVoice, EARLY_MS);
+  earlyTimer.unref?.();
+}
+
+/** The key went up before it was a hold: close the microphone opened for it. */
+export function coolVoice() {
+  shut(takeEarly());
+}
+
 /**
  * Start listening. `mode`: 'hold' (ends when the key is released) or 'toggle' (ends when the human says so).
  * `replyTo`: the work whose screen is open; what is said goes to it as a reply.
  */
 export function beginVoice(mode = 'hold', { replyTo = '' } = {}) {
-  if (store.voice.phase === 'listening' || store.voice.phase === 'thinking' || store.shuttingDown) return;
+  const opening = takeEarly();
+  if (busy()) return shut(opening);
   const mine = ++run;
   store.voice = { ...closed(), phase: 'listening', mode, replyTo: sessionOf(replyTo) ? replyTo : '' };
   store.changed();
   // Wake the recogniser while the human speaks (its model is fetched the first time; the layer shows how far along it is).
   void api('/api/voice/prepare', {});
-  voiceIo.openMic().then((m) => {
+  (opening ?? voiceIo.openMic()).then((m) => {
     if (run !== mine || store.voice.phase !== 'listening') return void m.cancel();
     mic = m;
     limit = setTimeout(() => endVoice(), MAX_SECONDS * 1000);
@@ -239,6 +272,7 @@ export function voiceToBox() {
 
 /** Close the layer and forget what was being heard or read. */
 export function cancelVoice() {
+  coolVoice();
   run++;
   clearTimeout(limit);
   mic?.cancel();

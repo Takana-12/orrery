@@ -65,6 +65,8 @@ export function railModel(state, showAllFinished) {
     ],
     /** Finished work whose result the human has already looked at: can be put away in one go. */
     seenFinished: finishedAll.filter((x) => !x.unread && x.completion === 'unverified'),
+    /** Every piece of work in the 返答が完了 group (shown or folded away): can be called done in one go. */
+    finishedAll,
   };
 }
 
@@ -187,24 +189,41 @@ export function archiveModel(state, query = '') {
 }
 
 const UPDATE_RANK = { none: 0, reload: 1, rebuild: 2 };
-/** An ordinary step (not something to look at), still to do. */
-export const openPlainStep = (st) => !st.check && !st.done;
+/** An ordinary step (not something to look at, nor the action those need first), still to do. */
+export const openPlainStep = (st) => !st.check && !st.prep && !st.done;
 
 /**
- * Which of a work's ordinary steps the inbox shows now, by index. A step that names a precondition (`after`) waits
- * behind every earlier step still open: those come first, and it appears only once they are done. When nothing earlier
- * is open, its precondition is something outside the list ("CIが緑になったら"), so it shows with that precondition
- * first. Steps without a precondition can be done now and always show.
+ * Whether a step still has to wait for another one of the list. A step that names a precondition (`after`) waits behind
+ * every earlier ordinary step still open; a thing to look at waits until the action that brings the change in (the
+ * `prep` step) is done. When nothing in the list is in the way, a precondition is something outside it ("CIが緑になったら"):
+ * the step shows, with that precondition said first. A done step never waits.
+ */
+export function waitsOnEarlier(steps, i) {
+  const st = steps[i];
+  if (!st || st.done) return false;
+  if (st.check) return steps.some((x) => x.prep && !x.done);
+  return !!st.after && steps.slice(0, i).some((x) => !x.check && !x.prep && !x.done);
+}
+
+/**
+ * Which of a work's ordinary steps the inbox shows now, by index: those still to do that wait on nothing else in the
+ * list. A step waiting on an earlier one appears once that one is done.
  */
 export function inboxStepIndexes(steps) {
   const shown = [];
-  for (let i = 0; i < steps.length; i++) {
-    const st = steps[i];
-    if (!openPlainStep(st)) continue;
-    if (st.after && steps.slice(0, i).some((x) => !x.check && !x.done)) continue;
-    shown.push(i);
-  }
+  for (let i = 0; i < steps.length; i++) if (openPlainStep(steps[i]) && !waitsOnEarlier(steps, i)) shown.push(i);
   return shown;
+}
+
+/**
+ * A work's own list as its screen shows it. First only what can be done now (and what is done already): the steps that
+ * wait on an earlier one appear once that one is ticked. `all`: every step, those that wait marked as such.
+ * Returns the steps to show ({ index, step, waits }) and how many are held back.
+ */
+export function workStepsModel(steps, all = false) {
+  const rows = steps.map((step, index) => ({ index, step, waits: waitsOnEarlier(steps, index) }));
+  const held = rows.filter((r) => r.waits).length;
+  return { rows: all ? rows : rows.filter((r) => !r.waits), held };
 }
 
 /**
@@ -218,19 +237,24 @@ export function checkGroups(sessions) {
   const by = new Map();
   for (const s of sessions) {
     (s.task?.humanSteps ?? []).forEach((st, index) => {
-      if (!st.check) return;
+      if (!st.check && !st.prep) return;
       let g = by.get(s.projectId);
       if (!g) by.set(s.projectId, (g = { projectId: s.projectId, projectName: s.projectName, update: 'none', hows: [], commands: [], works: [] }));
+      let w = g.works.find((x) => x.session.id === s.id);
+      if (!w) g.works.push((w = { session: s, items: [], preps: [] }));
+      // The action that brings the change in is the group's own first item, ticked for every work at once.
+      if (st.prep) return void w.preps.push({ index, step: st });
       if (UPDATE_RANK[st.check.update] > UPDATE_RANK[g.update]) g.update = st.check.update;
       if (st.check.how && !g.hows.includes(st.check.how)) g.hows.push(st.check.how);
       if (st.check.command && !g.commands.some((c) => c.command === st.check.command)) g.commands.push({ sessionId: s.id, command: st.check.command });
-      let w = g.works.find((x) => x.session.id === s.id);
-      if (!w) g.works.push((w = { session: s, items: [] }));
       w.items.push({ index, step: st });
     });
   }
-  // A group with nothing left to tick is not something to deal with.
-  return [...by.values()].filter((g) => g.works.some((w) => w.items.some((i) => !i.step.done)));
+  // A group with nothing left to tick is not something to deal with. `prepped`: the action has been done for every
+  // work (or none of them has it as a step of its own), so the checklist can be gone through.
+  return [...by.values()]
+    .filter((g) => g.works.some((w) => w.items.some((i) => !i.step.done)))
+    .map((g) => ({ ...g, prepped: g.works.every((w) => w.preps.every((p) => p.step.done)), hasPrep: g.works.some((w) => w.preps.length > 0) }));
 }
 
 /**

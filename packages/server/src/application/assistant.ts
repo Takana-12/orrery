@@ -2,6 +2,7 @@
 // helper process, so they run one at a time: a burst of new work must not start a burst of them.
 import type { HumanCheck, ProviderId, SideChatModel } from '#core';
 import type { PreferenceReader } from '../../../provider-shared/src/preferences.ts';
+import type { ReplyQuestion } from '../../../provider-shared/src/reply-questions.ts';
 import type { VoicePlanInput, VoicePlanner, VoiceTask, VoiceTidyInput } from '../../../provider-shared/src/voice-plan.ts';
 import type { Runtime } from './runtime.ts';
 
@@ -21,7 +22,8 @@ export interface LookReading extends HumanCheck {
 export interface ReplyReading {
   /** The agent says it is waiting for its own background work and will carry on by itself when that ends. */
   agentContinues: boolean;
-  question: { text: string; options: { label: string; description: string | null }[] } | null;
+  /** One per decision the reply leaves to the human (a reply may ask several unrelated things). Empty: nothing asked. */
+  questions: ReplyQuestion[];
   /** What only the human can do. `after`: what has to happen first, if the reply names a precondition. */
   steps: { title: string; detail: string | null; command: string | null; after: string | null }[];
   /** Things to see for oneself after bringing the change in. Null: nothing to look at. */

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setVoiceSettings } from '../public/js/logic/actions.js';
 import { store } from '../public/js/logic/store.js';
-import { beginVoice, cancelVoice, confirmVoice, dropVoiceTask, endVoice, setVoicePrompt, setVoiceTask, voiceIo, voiceLevel, voiceReplyTargets, voiceToBox } from '../public/js/logic/voice.js';
+import { beginVoice, cancelVoice, confirmVoice, coolVoice, dropVoiceTask, endVoice, setVoicePrompt, setVoiceTask, voiceIo, voiceLevel, voiceReplyTargets, voiceToBox, warmVoice } from '../public/js/logic/voice.js';
 import { micProblem, toPcm16 } from '../public/js/logic/voice-capture.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -28,8 +28,9 @@ function server(answers = {}) {
 }
 /** A microphone that is open after a moment and gives back `seconds` of speech at `peak`. */
 function mic({ seconds = 2, peak = 0.4, refuse = null } = {}) {
-  const m = { stopped: 0, cancelled: 0 };
+  const m = { opened: 0, stopped: 0, cancelled: 0 };
   voiceIo.openMic = async () => {
+    m.opened++;
     await sleep(5);
     if (refuse) throw Object.assign(new Error('no'), { name: refuse });
     return { level: () => 0.5, stop: () => (m.stopped++, { pcm: new Int16Array(16000 * seconds), seconds, peak }), cancel: () => void m.cancelled++ };
@@ -369,6 +370,50 @@ test('a reply that is refused is said, and the words go back into that work\'s r
   assert.equal(store.composerDrafts.get('s1'), 'orreryのバグを直して、それとledgerにテストを足して');
   assert.ok(store.composerFill.has('s1'));
   assert.equal((store.outbox.get('s1') ?? []).length, 0, 'what was not sent does not stay in the conversation');
+});
+
+test('the microphone opens the moment Space goes down: the start takes it, a short press closes it, and none opens without leave', async () => {
+  // Held: the microphone opened at the key's press is the one listened to, so the first words are kept.
+  reset();
+  voiceIo.micGranted = () => true;
+  const calls = server();
+  let m = mic();
+  warmVoice();
+  assert.equal(m.opened, 1, 'opened before it is known to be a hold');
+  await sleep(20);
+  beginVoice('hold');
+  await until(() => store.voice.live);
+  assert.equal(m.opened, 1, 'the start does not open a second one');
+  await endVoice();
+  assert.equal(m.stopped, 1);
+  assert.equal(calls.filter((c) => c.path === '/api/voice/transcribe').length, 1);
+
+  // Released sooner: closed again, nothing shown, nothing asked.
+  reset();
+  m = mic();
+  warmVoice();
+  coolVoice();
+  await sleep(20);
+  assert.deepEqual([m.opened, m.cancelled, store.voice.phase], [1, 1, 'off']);
+
+  // A cancel closes it too.
+  reset();
+  m = mic();
+  warmVoice();
+  cancelVoice();
+  await sleep(20);
+  assert.equal(m.cancelled, 1);
+
+  // Not yet allowed: a short press must not bring up the browser's question; the start asks as before.
+  reset();
+  voiceIo.micGranted = () => false;
+  m = mic();
+  warmVoice();
+  assert.equal(m.opened, 0);
+  beginVoice('hold');
+  await until(() => store.voice.live);
+  assert.equal(m.opened, 1);
+  cancelVoice();
 });
 
 test('samples are sent as 16-bit integers, clipped', () => {

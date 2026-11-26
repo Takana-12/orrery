@@ -178,7 +178,7 @@ export function sessionView(id) {
         el('div', { class: 'msg user unsent' }, icon('user'), el('div', {}, el('div', { class: 'text' }, m.text), el('div', { class: 'when' }, icon(m.sent ? 'clock' : 'running', m.sent ? 's' : 's spin'), m.sent ? ' 送信済み（エージェントの開始待ち）' : ' 送信中'))));
       if (s.completion !== 'human_steps') stepsShown.delete(id); // the next list of steps is shown first again
       const res = s.resources;
-      const sig = [s.lifecycle, s.completion, s.taskTitle, s.effort, s.approvalMode, s.deferredMessage, s.busyWith, s.awaitingBackground, JSON.stringify(s.usageResume ?? null), (s.background ?? []).join('、'), others.length, JSON.stringify(s.task?.humanSteps ?? null), stepsShown.get(id), s.queuePosition, s.task?.validating, s.task?.validation?.at, s.task?.fixRounds, s.live, s.process, s.model, s.archived, s.resumability, JSON.stringify(s.pullRequest ?? null), res?.processCount, res && Math.round(res.workingSetBytes / 5e6), s.error, store.errors.get(id), ago(s.lifecycleSince)].join('|');
+      const sig = [s.lifecycle, s.completion, s.taskTitle, s.effort, s.approvalMode, s.deferredMessage, s.busyWith, s.awaitingBackground, JSON.stringify(s.usageResume ?? null), (s.background ?? []).join('、'), others.length, JSON.stringify(s.task?.humanSteps ?? null), stepsShown.get(id), store.everyStep.has(id), s.queuePosition, s.task?.validating, s.task?.validation?.at, s.task?.fixRounds, s.live, s.process, s.model, s.archived, s.resumability, JSON.stringify(s.pullRequest ?? null), res?.processCount, res && Math.round(res.workingSetBytes / 5e6), s.error, store.errors.get(id), ago(s.lifecycleSince)].join('|');
       if (sig !== headSig) {
         headSig = sig;
         title.textContent = s.taskTitle;

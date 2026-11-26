@@ -8,6 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync
 import { tmpdir, homedir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { removeRunWorktrees } from './e2e-cleanup.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -335,6 +336,9 @@ try {
   await post('/api/shutdown').catch(() => {});
   await new Promise((r) => setTimeout(r, 7000));
   if (server.exitCode === null) server.kill();
+  await new Promise((r) => setTimeout(r, 1000)); // let the killed agents release their folders
+  const cleaned = removeRunWorktrees(root, home);
+  console.log(`cleanup: removed ${cleaned.worktrees.length} worktrees, ${cleaned.branches.length} orrery/* branches`);
   const failed = results.filter((r) => !r.pass).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);
   process.exitCode = failed ? 1 : 0;

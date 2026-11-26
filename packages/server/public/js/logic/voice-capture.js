@@ -22,24 +22,40 @@ export function toPcm16(chunks, length) {
   return pcm;
 }
 
+/** Whether the microphone opens without asking the human (only then is it opened before a hold is certain). */
+let granted = false;
+try {
+  globalThis.navigator?.permissions?.query({ name: 'microphone' }).then((p) => {
+    granted = p.state === 'granted';
+    p.onchange = () => { granted = p.state === 'granted'; };
+  }, () => {});
+} catch {}
+export const micGranted = () => granted;
+
 /**
  * Open the microphone and start keeping what it hears. Resolves once it is really listening with
  *   level()   how loud it is right now, 0..1 (for the picture on screen)
  *   stop()    stop and give back { pcm: Int16Array, seconds, peak }
  *   cancel()  stop and throw away
+ * The device and the audio thread are made ready side by side: what is said is kept from as early as possible.
  */
 export async function openMic() {
   if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error('no microphone API'), { name: 'NotFoundError' });
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+  const asking = navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
   let ctx;
+  let stream = null;
   const release = () => {
-    for (const t of stream.getTracks()) t.stop();
+    for (const t of stream?.getTracks() ?? []) t.stop();
     void ctx?.close().catch(() => {});
   };
   try {
     // The context itself runs at the recogniser's rate, so the browser does the resampling.
     ctx = new AudioContext({ sampleRate: VOICE_RATE, latencyHint: 'interactive' });
-    await ctx.audioWorklet.addModule('/js/logic/voice-worklet.js');
+    const [heard, loaded] = await Promise.allSettled([asking, ctx.audioWorklet.addModule('/js/logic/voice-worklet.js')]);
+    if (heard.status === 'fulfilled') stream = heard.value;
+    if (heard.status === 'rejected') throw heard.reason;
+    if (loaded.status === 'rejected') throw loaded.reason;
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
     const source = ctx.createMediaStreamSource(stream);
     const tap = new AudioWorkletNode(ctx, 'orrery-tap', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1, channelCountMode: 'explicit' });
     const chunks = [];
@@ -74,6 +90,7 @@ export async function openMic() {
       cancel: end,
     };
   } catch (e) {
+    if (!stream) void asking.then((s) => { for (const t of s.getTracks()) t.stop(); }, () => {});
     release();
     throw e;
   }

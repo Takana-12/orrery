@@ -3,10 +3,11 @@
 //   node packages/server/test/e2e-supervisors.ts
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { removeRunWorktrees } from './e2e-cleanup.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -17,6 +18,7 @@ const PORT = 4782;
 const TOKEN = 'e2e-test-token';
 const base = `http://127.0.0.1:${PORT}`;
 const home = mkdtempSync(join(tmpdir(), 'control-room-e2e2-'));
+let work = ''; // a temporary project outside this repo, made later in the run
 const fixtureB = join(root, 'poc/fixtures/project-b-codex');
 const SECRET = 's3cr3t-value-12345';
 // A value the agents will happily print (Codex declines to echo a variable that looks like a credential).
@@ -125,7 +127,7 @@ try {
   await post('/api/settings', { maxConcurrent: 4 });
 
   // ---- project environment variables -----------------------------------------------------------------
-  const work = mkdtempSync(join(tmpdir(), 'control-room-work-'));
+  work = mkdtempSync(join(tmpdir(), 'control-room-work-'));
   writeFileSync(join(work, 'CLAUDE.md'), '# temp project for control room tests\n');
   writeFileSync(join(work, 'check.js'), "const fs=require('fs');if(!fs.existsSync('ok.txt')){console.error('CHECK FAILED: ok.txt does not exist. Create a file named ok.txt containing the text OK in this folder.');process.exit(1)}console.log('CHECK PASSED');\n");
   const projW = (await post('/api/projects', { path: work, name: 'work' })).body.projectId as string;
@@ -223,6 +225,10 @@ try {
   await post('/api/shutdown').catch(() => {});
   await new Promise((r) => setTimeout(r, 7000));
   if (server.exitCode === null) server.kill();
+  await new Promise((r) => setTimeout(r, 1000)); // let the killed agents release their folders
+  const cleaned = removeRunWorktrees(root, home);
+  if (work) rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  console.log(`cleanup: removed ${cleaned.worktrees.length} worktrees, ${cleaned.branches.length} orrery/* branches`);
   const failed = results.filter((r) => !r.pass).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);
   process.exitCode = failed ? 1 : 0;

@@ -10,6 +10,7 @@
   color-scheme: dark;
   --bg: #12141d; --raise: #1b1e2b; --ink: #e4e6ee; --ink-2: #8a8fa3; --line: #292d3c;
   --acc: #d9b45f; --on-acc: #1b1608; --red: #f07a7a; --green: #6fca97;
+  --think: #8f9ff0; /* the voice sphere while what was said is being read: a soft periwinkle, the accent's calm counterpart */
   --tint: rgb(228 230 238 / .06); --tint-2: rgb(228 230 238 / .11);
   --shadow: 0 10px 28px rgb(0 0 0 / .45);
   /* what is left of a plan limit: plenty / getting low / almost gone. Vivid, tuned to each background. */
@@ -26,7 +27,7 @@
 :root[data-theme=light] {
   color-scheme: light;
   --bg: #f1efea; --raise: #fbfaf7; --ink: #102a43; --ink-2: #5b6d80; --line: #dcd8cf;
-  --acc: #1f78c8; --on-acc: #ffffff; --red: #c8363d; --green: #13804c;
+  --acc: #1f78c8; --on-acc: #ffffff; --red: #c8363d; --green: #13804c; --think: #6a74dc;
   --tint: rgb(16 42 67 / .05); --tint-2: rgb(16 42 67 / .09);
   --shadow: 0 10px 28px rgb(16 42 67 / .14);
   --ok: #10b05a; --warn: #e6a700; --low: #e8333f;
@@ -35,7 +36,7 @@
   :root:not([data-theme=dark]) {
   color-scheme: light;
   --bg: #f1efea; --raise: #fbfaf7; --ink: #102a43; --ink-2: #5b6d80; --line: #dcd8cf;
-  --acc: #1f78c8; --on-acc: #ffffff; --red: #c8363d; --green: #13804c;
+  --acc: #1f78c8; --on-acc: #ffffff; --red: #c8363d; --green: #13804c; --think: #6a74dc;
   --tint: rgb(16 42 67 / .05); --tint-2: rgb(16 42 67 / .09);
   --shadow: 0 10px 28px rgb(16 42 67 / .14);
   --ok: #10b05a; --warn: #e6a700; --low: #e8333f;
@@ -177,6 +178,8 @@ body.resizing iframe { pointer-events: none; }
 .strip .now.quiet { color: var(--acc); }
 .new-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); }
 .more { font-size: 12px; }
+.accept-all { display: flex; align-items: center; gap: 4px; margin: 2px 4px 4px; }
+.accept-all[hidden] { display: none; }
 .rail-foot { margin: 0 16px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
 .rail-foot .grow { display: flex; align-items: center; gap: 6px; }
 .rail-foot .update-btn:hover { color: var(--acc); }
@@ -236,6 +239,8 @@ h2 { font-size: 14px; font-weight: 600; margin: 30px 0 4px; display: flex; align
 .narrow-only { display: none; margin-left: auto; font-size: 14px; }
 .ask { font-size: 17px; font-weight: 600; line-height: 1.45; margin: 8px 0 8px; overflow-wrap: anywhere; }
 .ask .opt-mark { font-size: 12.5px; font-weight: 400; color: var(--ink-2); margin-left: 6px; }
+/* Separate decisions read from one reply: set apart by space alone, not by a line or a box. */
+.qblock + .qblock { margin-top: 20px; }
 .choice { display: flex; gap: 10px; align-items: flex-start; padding: 7px 10px; margin: 0 -10px; border-radius: var(--r-s); cursor: pointer; }
 .choice:hover { background: var(--tint); }
 .choice:has(input:checked) { background: var(--tint-2); }
@@ -731,6 +736,18 @@ textarea.voice-words { width: min(280px, 100%); min-height: 4.5em; max-height: 2
 .checks li .where { display: flex; gap: 6px; align-items: flex-start; margin: 3px 0 0 26px; }
 .checks li .where svg { flex: none; margin-top: 2px; }
 .steps li.look .st-line > svg { align-self: center; }
+/* The action things to look at need first is a step of its own; the rest waits for it (shown on request, dimmed). */
+.steps li.waits { opacity: .6; }
+.steps-held { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin-top: 10px; }
+.steps-held button { padding: 3px 8px; font-size: 13px; }
+.note.rich .md { line-height: inherit; }
+.note.rich .md p { margin: 0; }
+.checks .look-prep { margin: 8px 0 0 30px; }
+.checks .look-prep > label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.checks .look-prep .st { font-weight: 600; }
+.checks .look-prep.done .st { text-decoration: line-through; color: var(--ink-2); font-weight: 400; }
+.checks .look-prep .look-how { margin-left: 26px; }
+.checks .steps-held { margin-left: 30px; }
 .steps input[type=checkbox] { appearance: none; flex: none; width: 16px; height: 16px; margin: 3px 0 0; border: 1.5px solid var(--acc); border-radius: 4px; background: transparent; display: grid; place-content: center; cursor: pointer; transition: background-color var(--t-s) var(--ease), border-color var(--t-s) var(--ease); }
 .steps input[type=checkbox]::after { content: ''; width: 10px; height: 10px; background: var(--bg); clip-path: polygon(14% 52%, 0 66%, 38% 100%, 100% 22%, 86% 8%, 38% 72%); transform: scale(0); transition: transform var(--t-s) var(--ease); }
 .steps input[type=checkbox]:checked { background: var(--ink-2); border-color: var(--ink-2); }
@@ -794,18 +811,24 @@ textarea.voice-words { width: min(280px, 100%); min-height: 4.5em; max-height: 2
 /* a project being added: shown at once, faded until the server lists it */
 .set-row.proj.pending { opacity: .55; }
 
-/* ---------- voice input: one layer above the screens ----------
-   While it is open, everything that is not the background dissolves (the rail, the screen, chats, notices), and what
-   is left is the sphere, what was heard, and the work it became. Closing it brings the screen back the same way. */
-.app, .chat-dock, .notices, .banner { transition: opacity var(--t-l) var(--ease), filter var(--t-l) var(--ease), transform var(--t-l) var(--ease); }
-body[data-voice] :is(.app, .chat-dock, .notices, .banner) { opacity: 0; filter: blur(12px); transform: scale(.985); pointer-events: none; }
+/* ---------- voice input: one layer over the screen on the right ----------
+   While it is open, the rail stays where it is (remaining limits, settings, the work list) and everything on the right
+   dissolves (the screen, chats, notices); what is left there is the sphere, what was heard, and the work it became.
+   Closing it brings the screen back the same way. On narrow screens (one column) the layer takes the whole screen. */
+.main, .chat-dock, .notices, .banner { transition: opacity var(--t-l) var(--ease), filter var(--t-l) var(--ease), transform var(--t-l) var(--ease); }
+body[data-voice] :is(.main, .chat-dock, .notices, .banner) { opacity: 0; filter: blur(12px); transform: scale(.985); pointer-events: none; }
+body[data-voice] .rail-grip { pointer-events: none; }
 :root:has(body[data-voice]) { overflow: hidden; } /* the page under the layer does not scroll (nor show a scrollbar) */
-.voice { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 24px 20px 28px; overflow: auto; outline: none;
+.voice { position: fixed; inset: 0 0 0 var(--rail-w); z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 24px 20px 28px; overflow: auto; outline: none; container-type: inline-size;
   visibility: hidden; opacity: 0; pointer-events: none; transition: opacity var(--t-l) var(--ease), visibility 0s linear var(--t-l); }
+@media (max-width: 560px) {
+  .voice { left: 0; }
+  body[data-voice] .app { opacity: 0; pointer-events: none; }
+}
 body[data-voice] .voice { visibility: visible; opacity: 1; pointer-events: auto; transition: opacity var(--t-l) var(--ease) .1s, visibility 0s; }
 /* the sphere: large while it listens and thinks, small above the plan */
-.voice-orb { flex: none; width: min(420px, 80vw); aspect-ratio: 1; margin: -30px 0; transition: width var(--t-l) var(--ease), margin var(--t-l) var(--ease); }
-.voice[data-phase=review] .voice-orb, .voice[data-phase=error] .voice-orb { width: min(180px, 44vw); margin: -10px 0; }
+.voice-orb { flex: none; width: min(420px, 80cqw); aspect-ratio: 1; margin: -30px 0; transition: width var(--t-l) var(--ease), margin var(--t-l) var(--ease); }
+.voice[data-phase=review] .voice-orb, .voice[data-phase=error] .voice-orb { width: min(180px, 44cqw); margin: -10px 0; }
 .voice-say { width: min(640px, 100%); min-height: 92px; display: grid; gap: 10px; align-content: start; justify-items: center; text-align: center; }
 .voice-text { margin: 0; max-height: 30vh; overflow: auto; font-size: 20px; line-height: 1.6; word-break: auto-phrase; text-wrap: pretty; overflow-wrap: anywhere; }
 .voice[data-phase=error] .voice-text { color: var(--ink-2); font-size: 16px; }
@@ -828,7 +851,7 @@ body[data-voice] .voice { visibility: visible; opacity: 1; pointer-events: auto;
 .voice-tasks > :only-child .vt-drop { display: none; }
 .voice-bar { width: min(640px, 100%); min-height: 34px; margin-top: 10px; display: flex; gap: 6px; align-items: center; }
 @media (prefers-reduced-motion: reduce) {
-  .app, .chat-dock, .notices, .banner, .voice, body[data-voice] .voice, .voice-orb { transition: none; }
-  body[data-voice] :is(.app, .chat-dock, .notices, .banner) { filter: none; transform: none; }
+  .main, .chat-dock, .notices, .banner, .voice, body[data-voice] .voice, .voice-orb { transition: none; }
+  body[data-voice] :is(.main, .chat-dock, .notices, .banner) { filter: none; transform: none; }
   .voice-state.thinking { animation: none; opacity: .8; }
 }

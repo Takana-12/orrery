@@ -16,7 +16,7 @@ export function mountRailResize() {
   let want = Number(localStorage.getItem(KEY)) || base;
   const apply = () => {
     const w = limit(want);
-    app.style.setProperty('--rail-w', `${w}px`);
+    document.documentElement.style.setProperty('--rail-w', `${w}px`); // on the root: the voice layer (outside .app) sits right of it too
     grip.setAttribute('aria-valuenow', String(w));
   };
   const save = () => { try { localStorage.setItem(KEY, String(want)); } catch {} };

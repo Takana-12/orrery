@@ -2,7 +2,7 @@
 // the voice, with two orbits turning around it. Drawn on a canvas (no inline style, no image).
 //   wait    the microphone is not open yet: dim and still
 //   listen  it follows how loud the voice is
-//   think   what was said is being read: a slow breath, the planets turning faster
+//   think   what was said is being read: a slow breath, the planets turning faster, the light turned blue (--think)
 //   rest    nothing is happening (the plan is shown, or an error): one still frame, no loop
 import { el } from './dom.js';
 
@@ -31,16 +31,18 @@ export function voiceOrb() {
   let energy = 0; // the loudness, eased: quick to rise, slow to fall
   let glow = 0; // how awake the sphere is (0 dim .. 1 lit), eased towards the mode's own
   let turn = 0; // the orbits' angle; advances faster while thinking
+  let tone = 0; // how far the light has turned from the accent to the thinking blue (0..1), eased
   let last = 0;
   let c = null;
 
   const colours = () => {
     const css = getComputedStyle(document.documentElement);
     const acc = rgbOf(g, css.getPropertyValue('--acc').trim());
+    const think = rgbOf(g, css.getPropertyValue('--think').trim());
     const ink = rgbOf(g, css.getPropertyValue('--ink').trim());
     const bg = rgbOf(g, css.getPropertyValue('--bg').trim());
     const dark = bg[0] + bg[1] + bg[2] < 384;
-    return { acc, ink, dark, hot: mix(acc, [255, 255, 255], dark ? 0.42 : 0.3), line: rgbOf(g, css.getPropertyValue('--ink-2').trim()) };
+    return { base: acc, think, ink, dark, line: rgbOf(g, css.getPropertyValue('--ink-2').trim()) };
   };
 
   const fit = () => {
@@ -96,6 +98,9 @@ export function voiceOrb() {
     energy += (heard - energy) * (heard > energy ? 0.4 : 0.09);
     glow += ((mode === 'wait' ? 0.25 : mode === 'rest' ? 0.55 : 1) - glow) * 0.08;
     turn += dt * (mode === 'think' ? 1.9 : 0.5 + energy * 1.2);
+    tone += ((mode === 'think' ? 1 : 0) - tone) * 0.14;
+    c.acc = mix(c.base, c.think, tone);
+    c.hot = mix(c.acc, [255, 255, 255], c.dark ? 0.42 : 0.3);
     // Thinking: the light swells and fades gently, so it reads as "working", not "stopped".
     const breath = mode === 'think' ? 0.5 + 0.5 * Math.sin(t * 2.4) : mode === 'listen' ? 0.5 + 0.5 * Math.sin(t * 1.5) : 0.5;
     const lit = glow * (mode === 'think' ? 0.62 + breath * 0.3 : 1);
@@ -146,7 +151,7 @@ export function voiceOrb() {
   const loop = (now) => {
     paint(now);
     // At rest the picture settles (the glow eases to its level) and then stops being redrawn.
-    const settled = mode === 'rest' && Math.abs(glow - 0.55) < 0.01 && energy < 0.01;
+    const settled = mode === 'rest' && Math.abs(glow - 0.55) < 0.01 && energy < 0.01 && tone < 0.01;
     raf = settled || still.matches || !node.isConnected ? 0 : requestAnimationFrame(loop);
   };
 
@@ -159,7 +164,7 @@ export function voiceOrb() {
       if (!woke && raf) return;
       c = colours(); // the theme may have changed since the last time
       fit();
-      if (still.matches) { glow = mode === 'wait' ? 0.25 : mode === 'rest' ? 0.55 : 1; energy = 0; }
+      if (still.matches) { glow = mode === 'wait' ? 0.25 : mode === 'rest' ? 0.55 : 1; energy = 0; tone = mode === 'think' ? 1 : 0; }
       if (!raf) { last = 0; raf = requestAnimationFrame(loop); }
     },
   };

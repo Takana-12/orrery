@@ -3,6 +3,7 @@
 // A reply that ended is not one thing. It can mean:
 //   - the work is done                                   -> nothing to add
 //   - "A or B?"                                           -> a question in the inbox, answered as the next message
+//   - "A or B? ... and C or D?"                            -> one ticket, one question per decision (picked separately)
 //   - "now run X / merge the PR / restart the app"        -> steps for the human (not always phrased as a request)
 //   - "... once the tests that are running have passed"   -> a step with a precondition, shown as such
 //   - "the tests are running, I will report when done"    -> NOT finished: the agent continues by itself
@@ -26,7 +27,7 @@ import type { Sessions } from './sessions.ts';
 /** How often a reply is handed to the model before the wording alone decides. */
 const MAX_ATTEMPTS = 3;
 const RETRY_MS = 20_000;
-const NOTHING: ReplyReading = { agentContinues: false, question: null, steps: [], look: null };
+const NOTHING: ReplyReading = { agentContinues: false, questions: [], steps: [], look: null };
 
 /** Words that plainly hand something to the human. Used only when the model cannot be reached. */
 const HANDS_OVER = /してください|して下さい|お願いします|手動で|実行するだけ|が必要です|please (run|restart|merge|deploy|install|check)|you(?:'ll| will)? need to|manually/i;
@@ -38,11 +39,21 @@ export function fallbackReading(reply: string): ReplyReading {
   return { ...NOTHING, steps: [{ title: '返答を読んで、頼まれている作業をする', detail: `${line.trim().slice(0, 200)}（返答の自動読み取りが使えなかったため、文面からの推定です）`, command: null, after: null }] };
 }
 
-/** The human's list from a reading: the ordinary steps in order, then each thing to look at as a step of its own. */
+/** What the step that brings the change in is called, by how it is brought in. */
+const PREP_TITLE = { rebuild: 'アプリを更新する', reload: '画面を再読み込みする', none: '確かめる前の準備をする' } as const;
+
+/**
+ * The human's list from a reading: the ordinary steps in order, then the action the things to look at need first (as a
+ * step of its own, so it can be ticked and its command run), then each thing to look at as a step of its own.
+ */
 export function stepsOf(r: ReplyReading): HumanStepInput[] {
   const look = r.look;
+  const prep = look && look.checks.length > 0 && (look.update !== 'none' || look.how || look.command)
+    ? [{ title: PREP_TITLE[look.update], detail: look.how, command: look.command, after: null, prep: true }]
+    : [];
   return [
     ...r.steps.map((x) => ({ title: x.title, detail: x.detail, command: x.command, after: x.after })),
+    ...prep,
     ...(look ? look.checks.map((c) => ({ title: c.what, detail: c.where, command: null, after: null, check: { update: look.update, how: look.how, command: look.command } })) : []),
   ];
 }
@@ -167,15 +178,24 @@ export class Reader {
         ...(x.check ? { check: { ...x.check, how: x.check.how && redact(x.check.how) } } : {}),
       })));
     }
-    if (r.question) {
+    if (r.questions.length) {
+      const questions = r.questions.map((q, i) => ({
+        id: questionId(i),
+        header: null,
+        text: redact(q.text),
+        multiSelect: q.multiSelect,
+        allowFreeText: true,
+        isSecret: false,
+        options: q.options.map((o) => ({ label: redact(o.label), description: o.description && redact(o.description) })),
+      }));
       core.attentionOpen({
         sessionId: read.id,
         requestId: `final:${read.lifecycleSince}`,
         type: 'user_question',
-        summary: redact(r.question.text),
+        summary: questions.map((q) => q.text).join(' / '),
         allowDecline: true,
         passive: true,
-        questions: [{ id: 'answer', header: null, text: redact(r.question.text), multiSelect: false, allowFreeText: true, isSecret: false, options: r.question.options.map((o) => ({ label: redact(o.label), description: o.description && redact(o.description) })) }],
+        questions,
         rawPayloadRef: store.saveRaw(read.id, { source: 'エージェントの最終返答から読み取った質問', reply: redact(text) }),
       });
     }
@@ -184,7 +204,21 @@ export class Reader {
   /** The human answered a question that was read from a reply: the agent asked in prose, so the answer goes back as an ordinary message. */
   deliver(item: AttentionItem, answer: AttentionAnswer): void {
     if (answer.kind !== 'answers') return; // closed without an answer
-    const text = answer.answers.answer?.[0] ?? '';
+    const text = answerMessage(item, answer.answers);
     void this.sessions.send(item.sessionId, text).catch((e) => this.rt.core.sessionUpdate(item.sessionId, { error: `回答を送れませんでした: ${message(e)}` }));
   }
+}
+
+/** The answer key of the i-th question read from a reply. The first keeps the name single questions always had. */
+const questionId = (i: number) => (i === 0 ? 'answer' : `answer-${i + 1}`);
+
+/**
+ * The message an answer to a question read from a reply becomes. One question: just the answer, as the human would
+ * type it. Several: each answer under its own question, so the agent knows which decision it settles.
+ */
+export function answerMessage(item: Pick<AttentionItem, 'questions'>, answers: Record<string, string[]>): string {
+  const qs = (item.questions ?? []).filter((q) => answers[q.id]?.length);
+  const said = (id: string) => answers[id]!.join('、');
+  if ((item.questions ?? []).length <= 1) return qs[0] ? said(qs[0].id) : '';
+  return qs.map((q) => `「${q.text}」→ ${said(q.id)}`).join('\n');
 }

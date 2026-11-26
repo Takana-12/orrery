@@ -8,7 +8,7 @@ import type { AssistantModel, CheckItem, ReplyReading } from '../src/application
 import { Reader, fallbackReading } from '../src/application/reader.ts';
 import type { Runtime } from '../src/application/runtime.ts';
 
-const NOTHING: ReplyReading = { agentContinues: false, question: null, steps: [], look: null };
+const NOTHING: ReplyReading = { agentContinues: false, questions: [], steps: [], look: null };
 
 type Clarify = Parameters<AssistantModel['clarifyChecks']>[0];
 
@@ -148,7 +148,7 @@ test('after a restart the same reply is not read again and ticked steps stay tic
 });
 
 test('a question in the reply goes to the inbox and its answer goes back as a message', async () => {
-  const w = world(() => ({ ...NOTHING, question: { text: 'AとBどちらにしますか', options: [{ label: 'A', description: null }, { label: 'B', description: null }] } }));
+  const w = world(() => ({ ...NOTHING, questions: [{ text: 'AとBどちらにしますか', multiSelect: false, options: [{ label: 'A', description: null }, { label: 'B', description: null }] }] }));
   const id = w.start();
   w.finish(id, 'AとBどちらにしますか？');
   await w.settle();
@@ -158,6 +158,23 @@ test('a question in the reply goes to the inbox and its answer goes back as a me
   assert.deepEqual(w.core.answer(item.id, { kind: 'answers', answers: { answer: ['B'] } }), { ok: true });
   assert.deepEqual(w.sent, [{ id, text: 'B' }]);
   assert.equal(w.core.state.items.get(item.id)!.status, 'resolved');
+});
+
+test('a reply that asks two separate things becomes one ticket with a question for each, answered together', async () => {
+  const opt = (label: string) => ({ label, description: null });
+  const w = world(() => ({ ...NOTHING, questions: [
+    { text: '見比べの結果、どうしますか', multiSelect: false, options: [opt('EXP-2を採用'), opt('EXP-2を破棄'), opt('EXP-3を実施')] },
+    { text: '作者アドレスをどうしますか', multiSelect: false, options: [opt('作者アドレスを切り替える'), opt('作者アドレスの設定を戻す')] },
+  ] }));
+  const id = w.start();
+  w.finish(id, '見比べの結果を見て決めてください。それと、作者アドレスはどうしますか？');
+  await w.settle();
+  const item = [...w.core.state.items.values()].find((i) => i.sessionId === id)!;
+  assert.deepEqual(item.questions!.map((q) => [q.id, q.options.length]), [['answer', 3], ['answer-2', 2]]);
+  // Each decision is picked on its own: one answer for each question, both required.
+  assert.notEqual(w.core.answer(item.id, { kind: 'answers', answers: { answer: ['EXP-3を実施'] } }).ok, true);
+  assert.deepEqual(w.core.answer(item.id, { kind: 'answers', answers: { answer: ['EXP-3を実施'], 'answer-2': ['作者アドレスの設定を戻す'] } }), { ok: true });
+  assert.deepEqual(w.sent, [{ id, text: '「見比べの結果、どうしますか」→ EXP-3を実施\n「作者アドレスをどうしますか」→ 作者アドレスの設定を戻す' }]);
 });
 
 test('things to look at become steps of their own, each knowing the action that comes first', async () => {
@@ -170,10 +187,15 @@ test('things to look at become steps of their own, each knowing the action that 
   w.finish(id, 'アプリを更新して、2か所を確かめてください。PRのマージもお願いします。');
   await w.settle();
   const steps = w.task(id).humanSteps!;
-  assert.deepEqual(steps.map((x) => x.title), ['PRをマージする', '「完了にする」ボタンが行の右端にある', '「すべて見たことにする」が表示されない']);
+  assert.deepEqual(steps.map((x) => x.title), ['PRをマージする', 'アプリを更新する', '「完了にする」ボタンが行の右端にある', '「すべて見たことにする」が表示されない']);
   assert.equal(steps[0]!.check ?? null, null, 'an ordinary step is not a check');
-  assert.deepEqual(steps[2]!.check, { update: 'rebuild', how: '設定の「更新」を押す', command: null });
-  assert.equal(steps[2]!.detail, 'ホームの「返答が完了した作業」の見出しの右');
+  // The action the checks need first is a step of its own (ticked, its command run), not just a note on them.
+  assert.equal(steps[1]!.prep, true);
+  assert.equal(steps[1]!.detail, '設定の「更新」を押す');
+  assert.equal(steps[1]!.check ?? null, null);
+  assert.equal(steps[0]!.prep ?? false, false);
+  assert.deepEqual(steps[3]!.check, { update: 'rebuild', how: '設定の「更新」を押す', command: null });
+  assert.equal(steps[3]!.detail, 'ホームの「返答が完了した作業」の見出しの右');
   assert.equal(w.asked.length, 0, 'nothing was vague: the agent is not asked');
 });
 
@@ -191,8 +213,8 @@ test('vague checks are made exact by asking the agent itself before they reach t
   assert.equal(w.asked.length, 1);
   assert.deepEqual(w.asked[0]!.unclear, vague.unclear);
   assert.equal(w.asked[0]!.source.fork?.providerSessionId, 'prov', 'a Claude session is asked through a fork of its own conversation');
-  assert.deepEqual(w.task(id).humanSteps!.map((x) => x.title), exact.map((x) => x.what));
-  assert.equal(w.task(id).humanSteps![0]!.check?.update, 'reload');
+  assert.deepEqual(w.task(id).humanSteps!.map((x) => x.title), ['画面を再読み込みする', ...exact.map((x) => x.what)]);
+  assert.equal(w.task(id).humanSteps![1]!.check?.update, 'reload');
 });
 
 test('when the agent cannot be asked, the checks are kept as they were read', async () => {
@@ -201,7 +223,7 @@ test('when the agent cannot be asked, the checks are kept as they were read', as
   const id = w.start();
   w.finish(id, '表示を確かめてください。');
   await w.settle();
-  assert.deepEqual(w.task(id).humanSteps!.map((x) => x.title), ['表示を確かめる']);
+  assert.deepEqual(w.task(id).humanSteps!.map((x) => x.title), ['表示を確かめる'], 'nothing to do first: no step for it');
   assert.equal(w.completion(id), 'human_steps');
   assert.equal(w.asked.length, 1, 'asked once, not again and again');
 });

@@ -4,7 +4,7 @@ import { act, finishChecks, reportCommand, runCommand, runStep, setStep } from '
 import { clock, fullStamp } from '../logic/format.js';
 import { parseMarkdown } from '../logic/markdown.js';
 import { store } from '../logic/store.js';
-import { inboxStepIndexes, isBusy, openPlainStep, workspacesOf } from '../logic/selectors.js';
+import { inboxStepIndexes, isBusy, openPlainStep, workStepsModel, workspacesOf } from '../logic/selectors.js';
 import { confirmAction, confirmCommand } from './command-dialog.js';
 import { el, put } from './dom.js';
 import { icon } from './icons.js';
@@ -114,20 +114,43 @@ function stepCheck(sess, i, st) {
   return el('label', { class: 'st-check' }, box, el('span', { class: 'st' }, st.title));
 }
 
+/** Show every step of a list, or only what can be done now (`key`: a session id, or `look:<projectId>`). */
+function everyStepToggle(key, held) {
+  const all = store.everyStep.has(key);
+  if (held === 0) return null; // nothing waits: both ways show the same
+  return el('div', { class: 'steps-held' },
+    !all && el('span', { class: 'note' }, `ほか${held}件は、先の作業を済ませる（チェックを付ける）と表示します。`),
+    el('button', { type: 'button', class: 'quiet', onclick: () => {
+      if (all) store.everyStep.delete(key);
+      else store.everyStep.add(key);
+      store.changed();
+    } }, icon(all ? 'eye' : 'down', 's'), all ? '先にやる作業だけ表示する' : 'すべて表示する'));
+}
+
+/** A step's detail. Commands written in it (`npm run dev`) can be clicked to run, as in the agent's reply. */
+const stepDetail = (sessionId, text, cls = 'note') => (sessionId && text.includes('`') ? el('div', { class: `${cls} rich` }, richText(text, sessionId)) : el('div', { class: cls }, text));
+
 export function stepsBox(sess, { titled, aside = null }) {
   const steps = sess.task.humanSteps ?? [];
   const left = steps.filter((x) => !x.done).length;
   const open = () => go(`#/s/${sess.id}`);
-  // The inbox shows what can be done now; a step waiting on an earlier one appears once that one is done.
+  // The inbox shows what can be done now; a step waiting on an earlier one appears once that one is done. The work's
+  // own screen likewise shows first what comes first: the rest once that is ticked, or on request.
   const shown = titled ? new Set(inboxStepIndexes(steps)) : null;
   const waiting = titled ? steps.filter((x, i) => openPlainStep(x) && !shown.has(i)).length : 0;
+  const model = titled ? null : workStepsModel(steps, store.everyStep.has(sess.id));
+  const rows = titled ? steps.map((step, index) => ({ index, step, waits: false })).filter((r) => shown.has(r.index)) : model.rows;
+  const prep = steps.find((x) => x.prep && !x.done);
+  // A list read before the action came as a step of its own says it only as a note, on the first thing to look at.
+  const legacyLook = !steps.some((x) => x.prep);
+  const firstLook = (i) => !steps.slice(0, i).some((x) => x.check && !x.done);
   const box = el('section', { class: `steps${titled ? ' opens' : ''}` },
     el('div', { class: 'steps-head' }, icon('user', 'amber'),
       titled ? el('button', { class: 'quiet t', onclick: open }, sess.taskTitle, workspaceTag(sess)) : el('strong', {}, 'あなたの作業'),
       !titled && el('span', { class: 'note' }, `残り${left}件。すべて済ませると、この作業は完了になります。`),
       titled && doneButton(sess, 'steps-done'), aside),
     // The inbox lists only what is left (and things to look at are in their project's checklist, see checksBox).
-    el('ol', {}, steps.map((st, i) => (titled && !shown.has(i) ? null : el('li', { class: `${st.done ? 'done' : ''}${st.check ? ' look' : ''}` },
+    el('ol', {}, rows.map(({ index: i, step: st, waits }) => el('li', { class: `${st.done ? 'done' : ''}${st.check ? ' look' : ''}${st.prep ? ' prep' : ''}${waits ? ' waits' : ''}` },
       // In the inbox the precondition comes first: it is what has to happen before this step can be done.
       titled && st.after && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${st.after}`),
       el('div', { class: 'st-line' },
@@ -136,13 +159,18 @@ export function stepsBox(sess, { titled, aside = null }) {
         !titled ? stepCheck(sess, i, st) : el('span', { class: 'st' }, st.title)),
       // A step that has to wait for something says so, so it is not done too early.
       !titled && st.after && !st.done && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${st.after}`),
-      // The first thing to look at says what brings the change in before it.
-      st.check && !st.done && LOOK[st.check.update]?.first && !steps.slice(0, i).some((x) => x.check && !x.done)
-        && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${LOOK[st.check.update].first}${st.check.how ? `（${st.check.how}）` : ''}`),
-      st.detail && el('div', { class: 'note' }, st.detail),
+      // A thing to look at, shown before the action it needs is ticked (every step shown), names that action.
+      !titled && st.check && !st.done && prep && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${prep.title}`),
+      // A list without that action as a step: the first thing to look at says what brings the change in before it.
+      !titled && legacyLook && st.check && !st.done && LOOK[st.check.update]?.first && firstLook(i)
+        && el('div', { class: 'note after' }, icon('clock', 's'), `先に: ${LOOK[st.check.update].first}`),
+      !titled && legacyLook && st.check && !st.done && st.check.how && firstLook(i) && stepDetail(sess.id, st.check.how),
+      !titled && legacyLook && st.check && !st.done && st.check.command && firstLook(i) && cmdButton(sess.id, st.check.command),
+      st.detail && stepDetail(sess.id, st.detail),
       st.command && !st.done && stepCommand(sess, i, st),
-      runLine(sess, st))))),
+      runLine(sess, st)))),
     waiting > 0 && el('div', { class: 'note' }, `ほか${waiting}件は、先の作業が済んでから表示します。`),
+    !titled && everyStepToggle(sess.id, model.held),
     store.errors.has(sess.id) && el('div', { class: 'err' }, store.errors.get(sess.id)));
   if (titled) {
     box.title = 'クリックで開く';
@@ -154,7 +182,7 @@ export function stepsBox(sess, { titled, aside = null }) {
   }
   return box;
 }
-export const stepsSig = (x) => JSON.stringify([x.taskTitle, x.projectName, x.task?.humanSteps, store.errors.get(x.id)]);
+export const stepsSig = (x) => JSON.stringify([x.taskTitle, x.projectName, x.task?.humanSteps, store.errors.get(x.id), store.everyStep.has(x.id)]);
 
 /** One line of evidence for a checked task: what ran, how it exited, what is left uncommitted. */
 export function evidenceLine(s) {
@@ -238,15 +266,35 @@ function mdInline(nodes, sid) {
 export function checksBox(g) {
   const left = g.works.reduce((n, w) => n + w.items.filter((i) => !i.step.done).length, 0);
   const err = g.works.map((w) => store.errors.get(w.session.id)).find(Boolean);
+  const key = `look:${g.projectId}`;
+  const sid = g.works[0]?.session.id ?? null;
+  const how = (g.hows.length > 0 || g.commands.length > 0) && el('div', { class: 'look-how' },
+    g.hows.map((h) => stepDetail(sid, h)),
+    g.commands.map((c) => cmdButton(c.sessionId, c.command)));
+  // The action comes first, as an item of its own (ticked for every work at once): the checklist shows once it is
+  // ticked, or on request.
+  const preps = g.works.flatMap((w) => w.preps.map((p) => ({ session: w.session, ...p })));
+  const listed = !g.hasPrep || g.prepped || store.everyStep.has(key);
+  let prepItem = null;
+  if (g.hasPrep) {
+    const box = el('input', { type: 'checkbox', checked: g.prepped, 'aria-label': g.prepped ? '済み' : '未完了' });
+    box.addEventListener('change', async () => {
+      for (const p of preps) {
+        if (p.step.done === box.checked) continue;
+        if ((await setStep(p.session.id, p.index, box.checked)).status !== 200) break;
+      }
+    });
+    prepItem = el('div', { class: `look-prep${g.prepped ? ' done' : ''}` },
+      el('label', {}, box, el('span', { class: 'st' }, (preps.find((p) => !p.step.done) ?? preps[0]).step.title)),
+      !g.prepped && how);
+  }
   return el('section', { class: 'steps checks' },
     el('div', { class: 'steps-head' }, icon('eye', 'amber'),
       el('strong', { class: 't' }, LOOK[g.update]?.heading ?? LOOK.none.heading),
       workspaceTag(g),
       el('button', { class: 'steps-done', title: `残りの${left}項目を確かめたことにして、それぞれの作業を完了にする`, onclick: () => finishChecks(g.works) }, icon('check', 's'), '完了にする')),
-    (g.hows.length > 0 || g.commands.length > 0) && el('div', { class: 'look-how' },
-      g.hows.map((h) => el('div', { class: 'note' }, h)),
-      g.commands.map((c) => cmdButton(c.sessionId, c.command))),
-    g.works.map((w) => el('div', { class: 'look-work' },
+    prepItem ?? how,
+    listed && g.works.filter((w) => w.items.length > 0).map((w) => el('div', { class: 'look-work' },
       el('button', { class: 'quiet src', title: 'この作業を開く', onclick: () => go(`#/s/${w.session.id}`) }, w.session.taskTitle),
       el('ul', {}, w.items.map((it) => {
         const box = el('input', { type: 'checkbox', checked: it.step.done, 'aria-label': it.step.done ? '確かめた' : 'まだ確かめていない' });
@@ -255,6 +303,7 @@ export function checksBox(g) {
           el('label', {}, box, el('span', { class: 'st' }, it.step.title)),
           it.step.detail && el('div', { class: 'note where' }, icon('pin', 's dim'), it.step.detail));
       })))),
+    g.hasPrep && !g.prepped && everyStepToggle(key, left),
     err && el('div', { class: 'err' }, err));
 }
-export const checksSig = (g) => JSON.stringify([g.update, g.hows, g.commands, g.works.map((w) => [w.session.id, w.session.taskTitle, w.items, store.errors.get(w.session.id)])]);
+export const checksSig = (g) => JSON.stringify([g.update, g.hows, g.commands, g.works.map((w) => [w.session.id, w.session.taskTitle, w.items, w.preps, store.errors.get(w.session.id)]), store.everyStep.has(`look:${g.projectId}`)]);

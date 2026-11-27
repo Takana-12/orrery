@@ -15,6 +15,8 @@ import { editMessage } from '../message-dialog.js';
 import { go, route } from '../shell.js';
 import { SETTINGS_SECTIONS, sectionAnchor } from '../settings-sections.js';
 import { setTheme, theme, THEMES } from '../theme.js';
+import { orbitRings, setOrbitRings } from '../orbit-rings.js';
+import { MAX_RINGS } from '../../logic/orbits.js';
 import { canSeeThrough, CLEAR_STEP, MAX_CLEAR, setWindowClear, windowClear } from '../window-opacity.js';
 import { APPROVAL_OPTS, PROVIDER, SHORTCUTS } from '../vocabulary.js';
 
@@ -107,6 +109,8 @@ export function settingsView() {
 
   // ---- 外観 ----
   const themeSeg = segmented('テーマ', THEMES, theme(), setTheme);
+  // How many orbits the home screen spreads its points over (a choice of this screen, like the theme).
+  const ringSeg = segmented('ホームの軌道の数', Array.from({ length: MAX_RINGS }, (_, i) => ({ value: String(i + 1), label: String(i + 1) })), String(orbitRings()), (v) => setOrbitRings(Number(v)));
   // The window's see-through: only in the desktop app. Applied while the slider moves, so the effect is seen at once.
   const clearAt = windowClear();
   const clearOut = el('span', { class: 'unit clear-val' }, `${clearAt}%`);
@@ -333,6 +337,7 @@ export function settingsView() {
     el('h1', {}, icon('gear', 'l'), '設定', el('button', { class: 'quiet narrow-only', onclick: () => go('#/') }, icon('back', 's'), '戻る')),
     group('look',
       row('テーマ', null, themeSeg),
+      row('ホームの軌道の数', el('small', {}, '実行中の作業の点を、いくつの軌道に分けて回すか'), ringSeg),
       canSeeThrough() && row('ウィンドウの透過度', el('small', {}, '0%で透けません。上げるほど、後ろの画面が透けて見えます'), clearRange, clearOut)),
     group('agents',
       ...agentSwitches.map(({ p, t }) => row(el('span', { class: 'agent-name' }, icon(p, 's'), PROVIDER[p]), null, t))),

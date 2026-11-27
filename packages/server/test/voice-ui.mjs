@@ -132,16 +132,21 @@ async function verify() {
     for (const theme of ['dark', 'light']) {
       await run(`document.documentElement.dataset.theme = '${theme}'`);
       const before = started.length;
-      // Held: the screen dissolves and the microphone opens. (The box is empty and focused: holding Space there speaks, too.)
+      // Held on home: no screen of its own opens. The home screen's sphere takes the voice (it grows and comes forward),
+      // the box and the orbits recede, and the microphone opens. (The box is empty and focused: holding Space there speaks, too.)
+      const orbWidth = () => run('document.querySelector(".home .voice-orb").getBoundingClientRect().width');
+      const calm = await orbWidth();
       key('keyDown', 'Space');
       await until(async () => (await voice('phase')) === 'listening' && (await voice('live')), 'the microphone');
-      assert.equal(await run('document.body.dataset.voice'), 'on');
+      assert.equal(await run('document.body.dataset.voice'), 'home');
       assert.equal(await run('document.querySelector(".app").inert'), true, 'the screens under the layer take no input');
       await sleep(2200);
-      assert.equal(await opacity('.main'), '0', 'the screen on the right has dissolved');
-      assert.equal(await opacity('.rail'), '1', 'the rail stays in view');
-      assert.equal(await opacity('.voice'), '1');
-      assert.equal(await run(`Math.round(document.querySelector('.voice').getBoundingClientRect().left) === Math.round(document.querySelector('.rail').getBoundingClientRect().right)`), true, 'the layer starts where the rail ends');
+      assert.equal(await opacity('.main'), '1', 'the home screen stays: its sphere is the one that listens');
+      assert.equal(await opacity('.home .s-foot'), '0', 'the new-work box has receded');
+      assert.equal(await run('getComputedStyle(document.querySelector(".voice > .voice-orb")).display'), 'none', 'no second sphere');
+      assert.ok((await orbWidth()) > calm * 1.1, 'the sphere has come forward');
+      const sayTop = await run('document.querySelector(".voice-say").getBoundingClientRect().top');
+      assert.ok(sayTop > (await run('(() => { const r = document.querySelector(".home .voice-orb").getBoundingClientRect(); return r.top + r.height / 2; })()')), 'the words are under the sphere');
       await shot(`${theme}-1-listening`);
       // Released: read, then planned; each step shows at once.
       key('keyUp', 'Space');
@@ -162,8 +167,10 @@ async function verify() {
       key('keyUp', 'Enter');
       await until(() => started.length === before + 2, 'both pieces of work to start');
       assert.equal(await voice('phase'), 'off');
-      await sleep(900);
-      assert.equal(await opacity('.main'), '1', 'the screen is back');
+      await sleep(1400);
+      assert.equal(await opacity('.home .s-foot'), '1', 'the box is back');
+      // (Its own size may differ now: the work just started changes what the box leaves free.)
+      assert.deepEqual(await run('(() => { const s = getComputedStyle(document.querySelector(".home .voice-orb")); return [s.scale, s.translate]; })()'), ['none', '-50% -50%'], 'the sphere has glided back to its place');
       await shot(`${theme}-5-back`);
       await run('document.querySelector("form.new textarea").focus()');
     }
@@ -191,10 +198,14 @@ async function verify() {
     key('keyDown', 'Space');
     await until(async () => (await voice('phase')) === 'listening' && (await voice('live')), 'the microphone (reply)');
     assert.equal(await voice('replyTo'), work.id);
+    assert.equal(await run('document.body.dataset.voice'), 'on', 'away from home, the layer has its own sphere');
     await sleep(600);
     key('keyUp', 'Space');
     await until(async () => (await voice('phase')) === 'review', 'the reply');
     await sleep(700);
+    const faint = Number(await opacity('.main'));
+    assert.ok(faint > 0 && faint < 0.5, `the work's screen shows faintly behind the layer: ${faint}`);
+    assert.match(await run('getComputedStyle(document.querySelector(".main")).filter'), /blur/, 'and blurred');
     assert.equal(planned.length, plannedBefore, 'no planner for a reply on its own screen');
     assert.deepEqual(tidied.map((x) => [x.transcript, x.context.split('\n')[0]]), [[SAID, 'READMEの更新']], 'only its English is put back, knowing which work it answers');
     assert.equal(await run('document.querySelector(".voice-task .vt-prompt").value'), SAID.replace('orrery', 'Orrery'));
@@ -295,6 +306,18 @@ async function verify() {
     key('keyDown', 'Escape');
     key('keyUp', 'Escape');
     await until(async () => (await voice('phase')) === 'off', 'Esc to close');
+
+    // The sphere on home is a microphone too: what lies at its centre (and a little past its edge) is its button.
+    await until(() => run('!document.body.hasAttribute("data-voice")'), 'the layer gone');
+    const hit = `((dx) => { const r = document.querySelector(".home .voice-orb").getBoundingClientRect(); const sr = r.width * 58 / 420;
+      return document.elementFromPoint(r.left + r.width / 2 + dx * sr, r.top + r.height / 2)?.className; })`;
+    assert.equal(await run(`${hit}(0)`), 'orbit-mic', 'the sphere\'s centre is its button');
+    assert.equal(await run(`${hit}(1.3)`), 'orbit-mic', 'a little past its edge, too');
+    await run(`document.elementFromPoint(...(() => { const r = document.querySelector(".home .voice-orb").getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()).click()`);
+    await until(async () => (await voice('phase')) === 'listening' && (await voice('live')), 'the microphone (sphere)');
+    key('keyDown', 'Escape');
+    key('keyUp', 'Escape');
+    await until(async () => (await voice('phase')) === 'off', 'Esc to close (sphere)');
 
     // In a text box that has words in it, Space is a space.
     await run('(() => { const b = document.querySelector("form.new textarea"); b.focus(); b.value = "abc"; b.dispatchEvent(new Event("input", { bubbles: true })); })()');

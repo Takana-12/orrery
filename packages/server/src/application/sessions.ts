@@ -3,7 +3,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
-import { APPROVAL_MODES, type ApprovalMode, type AttentionAnswer, type ProviderId, type Settings } from '#core';
+import { APPROVAL_MODES, composeFirstMessage, type ApprovalMode, type AttentionAnswer, type ProviderId, type Settings } from '#core';
 import type { WorktreeInfo } from '../infrastructure/worktree.ts';
 import { runCommand } from '../infrastructure/shell.ts';
 import type { Assistant, CommandReading } from './assistant.ts';
@@ -176,7 +176,7 @@ export class Sessions {
       if (k.domains.length) said.push(`こだわり（${k.domains.join('、')}）`);
       if (also.length) said.push(`ほかのワークスペース（${also.map((p) => p.name).join('、')}）の場所`);
       if (said.length) journal.write(s.id, 'system', `${said.join('と')}を先頭に付けて送りました。${k.dropped ? `${k.dropped} セクションは、添付上限の5,000字まで送りました（保存した全文は残っています）。` : ''}`);
-      await rt.adapters[s.provider].startSession({ ...base, prompt: preamble ? `${preamble}\n\n${input.prompt}` : input.prompt, shownPrompt: preamble ? input.prompt : undefined, env: secrets.envFor(s.projectId) });
+      await rt.adapters[s.provider].startSession({ ...base, prompt: composeFirstMessage(preamble, input.prompt), shownPrompt: preamble ? input.prompt : undefined, env: secrets.envFor(s.projectId) });
     });
     return s.id;
   }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ControlCore, MemoryEventStore, fold, KNOWLEDGE_LIMITS, KNOWLEDGE_HEADING, OTHER_DOMAIN_ID, renderKnowledge, planKnowledge, chooseDomains } from '../src/index.ts';
+import { ControlCore, MemoryEventStore, fold, KNOWLEDGE_LIMITS, KNOWLEDGE_HEADING, OTHER_DOMAIN_ID, composeFirstMessage, renderKnowledge, planKnowledge, chooseDomains } from '../src/index.ts';
 
 function setup(store = new MemoryEventStore()) {
   let t = 1000;
@@ -53,6 +53,24 @@ test('new rules append to the same section prompt, preserving paragraphs and its
   assert.equal(core.state.knowledge.entries.size, 1);
   assert.equal(core.state.knowledge.entries.get(id!)!.text, 'ロジックとUIを分ける。\n設計メモを残す。\n\n境界を明示する。');
   assert.equal(core.state.knowledge.entries.get(id!)!.seen, false);
+});
+
+test('a section recorded by itself keeps only the lines it added as new, until the human looks', () => {
+  const { core, store } = setup();
+  const id = core.addKnowledgeEntry({ domainId: 'code', text: 'ロジックとUIを分ける。\n設計メモを残す。' })!;
+  assert.equal(core.state.knowledge.entries.get(id)!.added, undefined, 'written by hand: nothing is news');
+  core.addKnowledgeEntry({ domainId: 'code', text: '境界を明示する。', seen: false });
+  assert.deepEqual(core.state.knowledge.entries.get(id)!.added, ['境界を明示する。']);
+  core.addKnowledgeEntry({ domainId: 'code', text: '名前で意図を伝える。', seen: false });
+  assert.deepEqual(core.state.knowledge.entries.get(id)!.added, ['境界を明示する。', '名前で意図を伝える。']);
+  // A rewrite read from what was said: a line that was already there is not news, a changed one is.
+  core.updateKnowledgeEntry(id, { text: 'ロジックとUIを分ける。\n設計メモを短く残す。\n\n名前で意図を伝える。', seen: false });
+  assert.deepEqual(core.state.knowledge.entries.get(id)!.added, ['名前で意図を伝える。', '設計メモを短く残す。']);
+  assert.deepEqual(fold(store.readAll()).knowledge.entries.get(id)!.added, ['名前で意図を伝える。', '設計メモを短く残す。'], 'survives a restart');
+  core.markKnowledgeSeen();
+  assert.equal(core.state.knowledge.entries.get(id)!.added, undefined);
+  core.addKnowledgeEntry({ domainId: 'code', text: '次の追加', seen: false });
+  assert.deepEqual(core.state.knowledge.entries.get(id)!.added, ['次の追加'], 'what was looked at is not news again');
 });
 
 test('knowledge settings merge with what is there', () => {
@@ -170,4 +188,17 @@ test('preferences recorded before the reason became part of the text keep sendin
   assert.equal(e.text, '即時に変える（理由: 迷うため）');
   assert.equal(e.hits, 2);
   assert.equal(Object.hasOwn(e, 'why') || Object.hasOwn(e, 'quote'), false);
+});
+
+test('the first message keeps the standing part and the request apart, even when the request is about preferences', () => {
+  assert.equal(composeFirstMessage('', 'ボタンを直して'), 'ボタンを直して', 'nothing standing: the request goes as it is');
+  assert.equal(composeFirstMessage('  \n', 'ボタンを直して'), 'ボタンを直して');
+  const request = 'こだわりが更新されたとき、ホーム画面には追加されたものだけを出して';
+  const m = composeFirstMessage(`${KNOWLEDGE_HEADING}\n### UI・操作感\n押したらすぐ変える`, request);
+  const standing = m.slice(m.indexOf('<standing_instructions>'), m.indexOf('</standing_instructions>'));
+  const asked = m.slice(m.indexOf('<request>'), m.indexOf('</request>'));
+  assert.ok(m.startsWith('<standing_instructions>') && m.endsWith('</request>'));
+  assert.ok(m.indexOf('</standing_instructions>') < m.indexOf('<request>'), 'the request comes after the standing part closes');
+  assert.ok(standing.includes('押したらすぐ変える') && !standing.includes(request));
+  assert.ok(asked.includes(request) && !asked.includes('押したらすぐ変える'));
 });

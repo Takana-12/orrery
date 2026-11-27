@@ -2,7 +2,7 @@ export * from './types.ts';
 export * from './events.ts';
 export { apply, fold, emptyState } from './reducer.ts';
 export { ControlCore } from './core.ts';
-export { KNOWLEDGE_LIMITS, OTHER_DOMAIN_ID, KNOWLEDGE_HEADING, defaultKnowledge, knowledgeLine, entriesFor, domainsInOrder, renderKnowledge, planKnowledge, chooseDomains } from './knowledge.ts';
+export { KNOWLEDGE_LIMITS, OTHER_DOMAIN_ID, KNOWLEDGE_HEADING, composeFirstMessage, defaultKnowledge, knowledgeLine, entriesFor, domainsInOrder, renderKnowledge, planKnowledge, chooseDomains } from './knowledge.ts';
 export type { KnowledgePlan, RenderedKnowledge } from './knowledge.ts';
 export { formFromElicitation } from './elicitation.ts';
 export type { ElicitationForm } from './elicitation.ts';

@@ -22,7 +22,7 @@ import type {
   KnowledgeEntry,
   TaskValidation,
 } from './types.ts';
-import { cleanLine, cleanText, mergeKnowledgeEntries, scopedKnowledgeText, KNOWLEDGE_LIMITS, OTHER_DOMAIN_ID } from './knowledge.ts';
+import { addedSince, cleanLine, cleanText, combineKnowledgeText, mergeKnowledgeEntries, newLines, scopedKnowledgeText, KNOWLEDGE_LIMITS, OTHER_DOMAIN_ID } from './knowledge.ts';
 import type { UsageLimit } from './provider.ts';
 
 export interface OpenAttention {
@@ -397,6 +397,7 @@ export class ControlCore {
     merged.updatedAt = at;
     merged.sessionId = input.sessionId ?? merged.sessionId;
     merged.seen = input.seen ?? true;
+    this.markAdded(merged, old);
     this.emit({ type: 'knowledge.prompts_set', entries: [merged], remove: old.map((e) => e.id) });
     return merged.id;
   }
@@ -431,7 +432,21 @@ export class ControlCore {
     // Keep the target's id on moves, so subsequent edits can keep referring to the section.
     const merged = target.length ? { ...mergeKnowledgeEntries(this.state, [...target, next], next.domainId), id: target[0]!.id } : next;
     merged.seen = next.seen;
+    this.markAdded(merged, [...target, e]);
     this.emit({ type: 'knowledge.prompts_set', entries: [merged], remove: [entryId, ...target.map((x) => x.id)] });
+  }
+
+  /**
+   * A section recorded by itself keeps which of its lines are new to the human, so the news shows only those; what
+   * was there before (`before`, the entries it replaces) is not news again. Seen: nothing is new.
+   */
+  private markAdded(merged: KnowledgeEntry, before: readonly KnowledgeEntry[]): void {
+    if (merged.seen) {
+      delete merged.added;
+      return;
+    }
+    const text = combineKnowledgeText(before.map((x) => scopedKnowledgeText(this.state, x.scope, x.text)));
+    merged.added = addedSince({ text, added: before.flatMap(newLines) }, merged.text);
   }
 
   removeKnowledgeEntry(entryId: string): void {

@@ -211,6 +211,8 @@ export interface KnowledgeEntry {
   updatedAt: number;
   /** The human has looked at it since it was recorded (by hand-written ones always). */
   seen: boolean;
+  /** While not seen: the lines recorded by themselves since the human last looked, as they are in `text`. */
+  added?: string[];
 }
 
 export interface KnowledgeState {

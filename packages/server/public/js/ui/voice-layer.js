@@ -1,6 +1,8 @@
-// The voice layer: one level above the screen on the right. While it is open, the rail stays in view (not operable) and
-// everything right of it dissolves (app.css, body[data-voice]); only this is left there: the sphere, what was heard,
-// and the work it became.
+// The voice layer: one level above the screen on the right. Opened on the home screen, it is not a screen of its own:
+// the home screen's own sphere takes the voice (it swells and comes forward, everything around it recedes; app.css,
+// body[data-voice=home]) and only the words and the controls appear, where the new-work box was. Opened on any other
+// screen, the rail stays in view (not operable) and everything right of it dissolves (body[data-voice=on]); only this
+// is left there: its own sphere, what was heard, and the work it became.
 // Opened by holding Space (a short press, released sooner, keeps its old meaning) or by the microphone chip of the new-work box or of a
 // piece of work's reply box. Opened on a piece of work's screen, what is said is a reply to it.
 import { store } from '../logic/store.js';
@@ -15,6 +17,8 @@ import { voiceOrb } from './voice-orb.js';
 
 /** Space held this long is "speak"; released sooner it is the short press it always was. */
 const HOLD_MS = 350;
+/** How large the home screen's sphere is while it takes the voice, and while the plan or an error is shown under it. */
+const HOME_SCALE = { listening: 1.22, thinking: 1.22, review: 0.8, error: 0.9 };
 /** Space is down, from a press this module took notice of. */
 let held = false;
 let timer = null;
@@ -154,8 +158,44 @@ function build() {
   const text = el('p', { class: 'voice-text' });
   const tasks = el('div', { class: 'voice-tasks' });
   const bar = el('div', { class: 'voice-bar' });
-  root.replaceChildren(orb.node, el('div', { class: 'voice-say' }, text, state, tasks), bar);
-  return { root, orb, state, text, tasks, bar };
+  const say = el('div', { class: 'voice-say' }, text, state, tasks);
+  root.replaceChildren(orb.node, say, bar);
+  // On the home screen the words grow upwards from the bottom: the sphere keeps clear of them.
+  new ResizeObserver(() => placeHomeOrb()).observe(say);
+  window.addEventListener('resize', () => placeHomeOrb());
+  return { root, orb, state, text, tasks, bar, say };
+}
+
+/** The voice is the home screen's sphere's (the layer was opened, or is open, on the home screen): what it shows, or null. */
+export function homeVoiceMode() {
+  const v = store.voice;
+  if (v.phase === 'off' || route().view !== 'inbox') return null;
+  return v.phase === 'listening' ? (v.live ? 'listen' : 'wait') : v.phase === 'thinking' ? 'think' : 'home';
+}
+
+/**
+ * The home screen's sphere while it takes the voice: larger (it comes forward), and lifted just enough that the words
+ * under it never cover it; if there is not room for that, smaller still. Set as --v-scale and --v-lift on the body
+ * (app.css eases the sphere there and back).
+ */
+function placeHomeOrb() {
+  const b = document.body;
+  const stage = document.querySelector('.home .orbit-stage');
+  if (b.dataset.voice !== 'home' || !layer || !stage) return;
+  const css = getComputedStyle(stage);
+  const sr = parseFloat(css.getPropertyValue('--sr')) || 40;
+  const box = stage.getBoundingClientRect();
+  const centre = box.top + (parseFloat(css.getPropertyValue('--cy')) || box.height / 2);
+  const floor = layer.say.getBoundingClientRect().top - 12; // the words' top edge
+  const top = box.top + 8;
+  let scale = HOME_SCALE[store.voice.phase] ?? 1;
+  const reach = 1.5; // the sphere swelling with the voice, and some of its light, past its radius
+  // Lift it until its lower edge clears the words, but not past the top of the stage; if both cannot be kept, shrink it.
+  const room = floor - top;
+  if (room > 0 && sr * scale * reach * 2 > room) scale = Math.max(0.45, room / (sr * reach * 2));
+  const lift = Math.max(0, Math.min(centre + sr * scale * reach - floor, centre - sr * scale - top));
+  b.style.setProperty('--v-scale', scale.toFixed(3));
+  b.style.setProperty('--v-lift', `${lift.toFixed(0)}px`);
 }
 
 const cut = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
@@ -216,22 +256,28 @@ export function drawVoice() {
     layer = build();
   }
   const { root, orb } = layer;
-  const shown = document.body.dataset.voice === 'on';
+  const b = document.body;
+  const shown = b.dataset.voice !== undefined;
+  const home = route().view === 'inbox';
   if (on && !shown) {
     before = document.activeElement;
-    document.body.dataset.voice = 'on';
     for (const n of document.querySelectorAll('.app, .chat-dock')) n.inert = true;
     root.focus({ preventScroll: true });
   } else if (!on && shown) {
-    delete document.body.dataset.voice;
+    delete b.dataset.voice;
+    // The home screen's sphere glides back to its place and size from where it was (app.css).
+    b.style.removeProperty('--v-scale');
+    b.style.removeProperty('--v-lift');
     for (const n of document.querySelectorAll('.app, .chat-dock')) n.inert = false;
     if (before?.isConnected && !document.activeElement?.matches?.('textarea, input')) before.focus({ preventScroll: true });
     before = null;
     orb.set('rest');
   }
   if (!on) return; // what was shown stays as it is while the layer fades out
+  b.dataset.voice = home ? 'home' : 'on';
   root.dataset.phase = v.phase;
-  orb.set(v.phase === 'listening' ? (v.live ? 'listen' : 'wait') : v.phase === 'thinking' ? 'think' : 'rest', voiceLevel);
+  // On the home screen its sphere is the one that moves (views/home.js, homeVoiceMode); this one rests, unseen.
+  orb.set(home ? 'rest' : v.phase === 'listening' ? (v.live ? 'listen' : 'wait') : v.phase === 'thinking' ? 'think' : 'rest', voiceLevel);
 
   // One state = one icon + one word, where the next thing will appear.
   const model = store.state?.voice?.model;
@@ -255,4 +301,5 @@ export function drawVoice() {
     layer.bar.dataset.sig = barSig;
     put(layer.bar, barFor(v));
   }
+  placeHomeOrb();
 }

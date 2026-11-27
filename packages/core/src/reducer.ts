@@ -265,7 +265,10 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
       return state;
     }
     case 'knowledge.seen':
-      for (const entry of state.knowledge.entries.values()) entry.seen = true;
+      for (const entry of state.knowledge.entries.values()) {
+        entry.seen = true;
+        delete entry.added;
+      }
       return state;
     case 'session.created': {
       const s: AgentSession = {

@@ -68,6 +68,25 @@ export function scopedKnowledgeText(state: Pick<CoreState, 'projects'>, scope: s
   return `プロジェクト「${project?.name ?? scope}」${project ? `（${project.rootPath}）` : ''}に限り、次の方針を適用する。\n${text}`;
 }
 
+const linesOf = (text: string): string[] => text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+/** The lines of a not-yet-seen entry that are new to the human (an old entry without the record: all of it). */
+export function newLines(e: Pick<KnowledgeEntry, 'text' | 'seen' | 'added'>): string[] {
+  if (e.seen) return [];
+  return e.added ?? linesOf(e.text);
+}
+
+/**
+ * What stays new after a section changed from `before` to `after`: what was new and is still in it, then the lines the
+ * change brought in, each once. Lines that were there already are not new, even when they moved.
+ */
+export function addedSince(before: { text: string; added: readonly string[] }, after: string): string[] {
+  const had = new Set(linesOf(before.text));
+  const now = linesOf(after);
+  const kept = new Set(now);
+  return [...new Set([...before.added.filter((l) => kept.has(l)), ...now.filter((l) => !had.has(l))])];
+}
+
 /** A section's entries become one prompt. Used by migration, appends and moves; no model or I/O is needed. */
 export function mergeKnowledgeEntries(state: Pick<CoreState, 'projects'>, entries: readonly KnowledgeEntry[], domainId: string): KnowledgeEntry {
   const ordered = [...entries].sort((a, b) => a.createdAt - b.createdAt);
@@ -79,6 +98,7 @@ export function mergeKnowledgeEntries(state: Pick<CoreState, 'projects'>, entrie
     hits: ordered.reduce((hits, e) => hits + e.hits, 0),
     updatedAt: Math.max(...ordered.map((e) => e.updatedAt)),
     seen: ordered.every((e) => e.seen),
+    added: ordered.every((e) => e.seen) ? undefined : [...new Set(ordered.flatMap(newLines))],
   };
 }
 
@@ -117,6 +137,28 @@ export function renderKnowledge(k: KnowledgeState, domainIds: Iterable<string>, 
     names.push(d.name);
   }
   return names.length ? { text: parts.join('\n'), domains: names, dropped } : { text: '', domains: [], dropped };
+}
+
+/**
+ * The first message of new work: the standing part (default messages, preferences, other workspaces) and this one
+ * request, in separate tagged blocks. Joined by a blank line alone, a request that talks about preferences read as one
+ * more preference and the agent found no request at all. With nothing standing, the request goes as it is.
+ */
+export function composeFirstMessage(standing: string, request: string): string {
+  if (!standing.trim()) return request;
+  return [
+    '<standing_instructions>',
+    'どの作業にも共通する前提（デフォルトメッセージ・こだわりなど）です。今回の依頼ではありません。作業の進め方の基準として守ってください。',
+    '',
+    standing.trim(),
+    '</standing_instructions>',
+    '',
+    '<request>',
+    '今回やってほしいことです。こだわりや設定の話であっても、これが今回の依頼です。',
+    '',
+    request,
+    '</request>',
+  ].join('\n');
 }
 
 /** How new work gets its preferences. */

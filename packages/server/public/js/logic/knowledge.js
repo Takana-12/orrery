@@ -43,12 +43,19 @@ export function knowledgeUsage(state) {
   };
 }
 
-/** What was recorded by itself and not yet looked at, newest first. */
+/** What was recorded by itself and not yet looked at: only the lines it added, in full, newest section first. */
 export function knowledgeNews(state) {
   const k = state?.knowledge;
-  if (!k) return { count: 0, latest: [] };
-  const fresh = k.entries.filter((e) => !e.seen).sort((a, b) => b.createdAt - a.createdAt);
-  return { count: fresh.length, latest: fresh.slice(0, 3) };
+  if (!k) return { count: 0, lines: [] };
+  const fresh = k.entries.filter((e) => !e.seen).sort((a, b) => b.updatedAt - a.updatedAt);
+  const lines = [...new Set(fresh.flatMap(addedLines))];
+  return { count: lines.length, lines };
+}
+
+/** The lines of an entry that are new to the human, in full (an entry recorded before they were kept: all of it). */
+function addedLines(e) {
+  if (e.seen) return [];
+  return e.added ?? String(e.text).split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
 /** The areas in order, each with its preferences (most repeated first, then oldest first). */

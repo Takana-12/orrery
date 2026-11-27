@@ -273,8 +273,18 @@ export function newWorkForm() {
     const x = store.newDraft.sent && Date.now() - store.newDraft.sent.at < SENT_MS - 100 ? store.newDraft.sent : null;
     if (sentNote.dataset.id === (x?.id ?? '')) return;
     sentNote.dataset.id = x?.id ?? '';
-    put(sentNote, x && [icon('check', 's green'), el('span', { class: 'what' }, '「', el('span', { class: 'cut', title: x.title }, x.title), '」を始めました'), el('button', { type: 'button', class: 'quiet', onclick: () => go(`#/s/${x.id}`) }, '開く')]);
-    if (x) setTimeout(() => { if (ui.view?.key === 'inbox') ui.view.update(route()); }, SENT_MS);
+    clearTimeout(sentNote.leave);
+    sentNote.classList.remove('leaving');
+    // Going away plays the coming-in backwards, then the note is emptied.
+    if (!x) {
+      if (!sentNote.firstChild) return;
+      sentNote.classList.add('leaving');
+      sentNote.leave = setTimeout(() => { sentNote.classList.remove('leaving'); put(sentNote, null); }, 180);
+      return;
+    }
+    if (sentNote.firstChild) { sentNote.style.animation = 'none'; void sentNote.offsetWidth; sentNote.style.animation = ''; } // a newer one comes in afresh
+    put(sentNote, [icon('check', 's green'), el('span', { class: 'what' }, '「', el('span', { class: 'cut', title: x.title }, x.title), '」を始めました'), el('button', { type: 'button', class: 'quiet', onclick: () => go(`#/s/${x.id}`) }, '開く')]);
+    setTimeout(() => { if (ui.view?.key === 'inbox') ui.view.update(route()); }, SENT_MS);
   };
 
   syncForm();

@@ -2,7 +2,7 @@
 // for the helper model, and a recording adapter for the agent.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ControlCore, MemoryEventStore, KNOWLEDGE_HEADING } from '#core';
+import { ControlCore, MemoryEventStore, KNOWLEDGE_HEADING, composeFirstMessage } from '#core';
 import type { ProviderAdapter, StartSessionRequest } from '#core';
 import { Assistant } from '../src/application/assistant.ts';
 import type { AssistantModel, PreferenceModel, PreferenceReading, TuneInput, TuneReading } from '../src/application/assistant.ts';
@@ -142,7 +142,7 @@ test('nothing recorded: the first message is exactly what it was before', async 
 
   w.core.setSettings({ preamble: '日本語で' });
   await w.start('次の作業');
-  assert.equal(w.started[1]!.prompt, '日本語で\n\n次の作業');
+  assert.equal(w.started[1]!.prompt, composeFirstMessage('日本語で', '次の作業'));
   assert.ok(w.journal.some((j) => j.text === '設定の「デフォルトメッセージ」を先頭に付けて送りました。'));
 });
 
@@ -204,13 +204,13 @@ test('little recorded: all of it goes, after the default message, and the human\
   w.core.addKnowledgeEntry({ domainId: 'ui', text: '即時のフィードバック' });
   await w.start('ボタンを直して');
   const req = w.started[0]!;
-  assert.equal(req.prompt, `日本語で\n\n${KNOWLEDGE_HEADING}\n### UI・操作感\n即時のフィードバック\n\nボタンを直して`);
+  assert.equal(req.prompt, composeFirstMessage(`日本語で\n\n${KNOWLEDGE_HEADING}\n### UI・操作感\n即時のフィードバック`, 'ボタンを直して'));
   assert.equal(req.shownPrompt, 'ボタンを直して');
   assert.ok(w.journal.some((j) => j.text === '設定の「デフォルトメッセージ」とこだわり（UI・操作感）を先頭に付けて送りました。'));
 
   w.core.setSettings({ knowledge: { capture: true, inject: false } });
   await w.start('次');
-  assert.equal(w.started[1]!.prompt, '日本語で\n\n次', 'turned off: none are sent');
+  assert.equal(w.started[1]!.prompt, composeFirstMessage('日本語で', '次'), 'turned off: none are sent');
 });
 
 function lots(w: ReturnType<typeof world>) {

@@ -1,27 +1,19 @@
-// Inbox: the list half of the home screen, the one place from which every piece of work is managed.
-// Top to bottom, most pressing first: requests to answer, the human's own steps, failed checks, work that can be
-// called done, work that stopped, finished replies, and what is still going. Every piece of work that is not put away
-// is in exactly one of these (see inboxModel), and each row carries the actions that make sense for it, so nothing
-// has to be opened just to answer, reply, finish, stop or put away.
-import { act, markAllSeen, markKnowledgeSeen, sendMessage } from '../../logic/actions.js';
+// Inbox: what the home screen's panel shows for one thing that waits for the human, or for work that is still going
+// (logic/orbits.js decides which things those are). Each carries the actions that make sense for it, so nothing has to be opened just to answer,
+// reply, finish, stop or put away.
+import { act, markKnowledgeSeen, sendMessage } from '../../logic/actions.js';
 import { composerChoice } from '../../logic/ai.js';
-import { knowledgeNews } from '../../logic/knowledge.js';
 import { ago, agoWord } from '../../logic/format.js';
-import { advanceAccordion, checkGroups, inboxModel, openPlainStep } from '../../logic/selectors.js';
 import { store } from '../../logic/store.js';
-import { el, sync } from '../dom.js';
+import { el } from '../dom.js';
 import { effortPicker } from '../effort-picker.js';
 import { icon } from '../icons.js';
 import { go, render } from '../shell.js';
 import { checksBox, checksSig, doneButton, evidenceLine, stepsBox, stepsSig, workspaceTag } from '../task-parts.js';
 import { ticket, ticketSig } from '../ticket.js';
-import { voiceOrb } from '../voice-orb.js';
-import { lampFor, nowLine, waitsForBackground, wordFor } from '../vocabulary.js';
+import { lampFor, nowLine, wordFor } from '../vocabulary.js';
 import { plainText } from '../../logic/markdown.js';
 import { fullStamp } from '../../logic/format.js';
-
-/** How many finished replies are listed before "show the rest". */
-const FINISHED_SHOWN = 8;
 
 /** A reply box inside a row. It shares its draft with the session's own reply box. */
 function quickReply(s, placeholder) {
@@ -85,106 +77,54 @@ const finishedRow = (s) => workRow(s, {
   actions: [doneButton(s)],
 });
 
-const activeRow = (s) => workRow(s, {
-  // Always one line: the live preview changes every few seconds, and a row that grows and shrinks shakes the list.
-  oneLine: true,
-  text: s.completion === 'validating' ? `検証しています: ${s.task?.checkCommand ?? ''}`
-    : s.lifecycle === 'queued' ? (s.queuePosition ? `順番待ち ${s.queuePosition}番目。空きが出ると自動で始まります。` : '順番待ち')
-      : s.lifecycle === 'waiting_for_user' ? 'エージェントがあなたの操作を待っています。開いて確認してください。'
-        : nowLine(s) ?? '',
-  reply: s.completion === 'validating' ? null : { word: '次の指示', placeholder: waitsForBackground(s) && s.live ? '指示を書いて Enter（すぐに届きます）' : '' },
+const waitingRow = (s) => workRow(s, {
+  text: 'エージェントがあなたの操作を待っています。開いて確認してください。',
+  reply: { word: '次の指示', placeholder: '' },
   actions: [
-    waitsForBackground(s) && el('button', { title: 'バックグラウンドの作業を待たずに、いまの返答を完了として扱う', disabled: !!s.busyWith, onclick: () => act(s.id, 'finish') }, icon('done', 's'), '待たない'),
-    s.completion !== 'validating' && el('button', { disabled: !!s.busyWith, onclick: () => act(s.id, 'interrupt') }, icon('stop', 's'), s.lifecycle === 'queued' ? '取り消す' : '中断'),
+    el('button', { disabled: !!s.busyWith, onclick: () => act(s.id, 'interrupt') }, icon('stop', 's'), '中断'),
     doneButton(s),
   ],
 });
 
-/** The inbox as a block for the home screen: requests first, then every group of work. */
-export function inboxList() {
-  const list = el('div', {});
-  const clear = el('div', {});
-  let orb = null; // the empty state's sphere: made once, reused each time the inbox empties
-  const section = (ic, tone, word, extra) => {
-    const n = el('span', { class: 'n' });
-    return { head: el('h2', {}, icon(ic, tone), word, n, extra), n, body: el('div', {}) };
-  };
-  const steps = section('user', 'amber', 'あなたの作業');
-  const fixes = section('fail', 'red', '検証に失敗した作業');
-  const cands = section('shield', 'green', '完了にできる作業');
-  const problems = section('error', 'red', '止まっている作業');
-  const seenAll = el('button', { class: 'quiet seen-all', onclick: () => markAllSeen(inboxModel(store.state).allUnread) }, icon('check', 's'), 'すべて見たことにする');
-  const finished = section('done', 'green', '返答が完了した作業', seenAll);
-  const more = el('button', { class: 'quiet more', hidden: true, onclick: () => { store.showAllFinished = !store.showAllFinished; render(); } });
-  const active = section('running', 'blue', '進行中の作業');
-  // Preferences recorded by themselves: news until the human has looked at them (on their screen, or here).
-  const learned = section('bulb', '', '新しく記録したこだわり');
-  store.userCollapsed = false; // coming back to the inbox: one request opens by itself again
-  const node = el('div', { class: 'inbox' }, list, clear,
-    steps.head, steps.body, fixes.head, fixes.body, cands.head, cands.body, problems.head, problems.body, finished.head, finished.body, more, active.head, active.body, learned.head, learned.body);
+/** Work still going (a point on an orbit): what it is doing now, and a way to stop it or take it out of the queue. */
+const goingRow = (s) => workRow(s, {
+  text: nowLine(s),
+  oneLine: true,
+  actions: [el('button', { disabled: !!s.busyWith, onclick: () => act(s.id, 'interrupt') }, icon('stop', 's'), s.lifecycle === 'queued' ? '取り消す' : '中断')],
+});
 
-  const fill = (sec, sessions, sig, build, key = (s) => s.id) => {
-    sec.head.hidden = sessions.length === 0;
-    sec.n.textContent = sessions.length || '';
-    sync(sec.body, sessions, key, sig, build);
-  };
-  const verdictRow = (s) => el('div', { class: 'result verdict-row' },
-    lampFor(s),
-    el('button', { class: 'quiet t', onclick: () => go(`#/s/${s.id}`) }, s.taskTitle, workspaceTag(s)),
-    s.completion === 'candidate'
-      ? doneButton(s, 'primary')
-      : el('span', { class: 'do' }, el('button', { onclick: () => go(`#/s/${s.id}`) }, '開く'), doneButton(s)),
-    el('span', { class: 'x' }, evidenceLine(s)),
-    store.errors.has(s.id) && el('span', { class: 'x err' }, store.errors.get(s.id)));
-  const vSig = (s) => [s.completion, s.taskTitle, s.projectName, s.task?.validation?.at, store.errors.get(s.id)].join('|');
+const verdictRow = (s) => el('div', { class: 'result verdict-row' },
+  lampFor(s),
+  el('button', { class: 'quiet t', onclick: () => go(`#/s/${s.id}`) }, s.taskTitle, workspaceTag(s)),
+  s.completion === 'candidate'
+    ? doneButton(s, 'primary')
+    : el('span', { class: 'do' }, el('button', { onclick: () => go(`#/s/${s.id}`) }, '開く'), doneButton(s)),
+  el('span', { class: 'x' }, evidenceLine(s)),
+  store.errors.has(s.id) && el('span', { class: 'x err' }, store.errors.get(s.id)));
+const vSig = (s) => [s.completion, s.taskTitle, s.projectName, s.task?.validation?.at, store.errors.get(s.id)].join('|');
 
-  return {
-    node,
-    update() {
-      const model = inboxModel(store.state);
-      const { open } = model;
-      const c = store.state.counts;
-      // Accordion: answering an open request opens the next one; with nothing open, the first opens by itself.
-      const { opened, afterAnswer } = advanceAccordion(store, open.map((i) => i.id));
-      sync(list, open, (i) => i.id, (i) => `${ticketSig(i)}|${store.expanded.has(i.id)}`, (i) => ticket(i, { collapsible: true }));
-      if (opened && afterAnswer && (!document.activeElement || document.activeElement === document.body || list.contains(document.activeElement))) {
-        requestAnimationFrame(() => list.querySelector(`[data-item="${opened}"]`)?.focus());
-      }
-      const clearSig = `${open.length}|${c.humanTasks}|${c.running}|${c.queued}|${c.unread}`;
-      if (clear.dataset.sig !== clearSig) {
-        clear.dataset.sig = clearSig;
-        clear.replaceChildren(...(open.length || c.humanTasks ? [] : [el('div', { class: 'clear' }, (orb ??= voiceOrb()).node,
-          el('strong', {}, '判断待ちはありません'),
-          (c.running > 0 || c.queued > 0) && el('div', { class: 'counts' },
-            el('span', { title: '実行中' }, icon('running', 's blue spin'), String(c.running)),
-            c.queued > 0 && el('span', { title: '順番待ち' }, icon('clock', 's'), String(c.queued))))]));
-        if (orb?.node.isConnected) orb.set(c.running > 0 ? 'busy' : 'idle');
-      }
-      // The human's own work: each project's things to look at as one checklist, then each work's other steps.
-      const mine = [
-        ...checkGroups(model.steps).map((g) => ({ key: `look:${g.projectId}`, g })),
-        ...model.steps.filter((s) => (s.task?.humanSteps ?? []).some(openPlainStep)).map((s) => ({ key: s.id, s })),
-      ];
-      fill(steps, mine, (x) => (x.g ? checksSig(x.g) : stepsSig(x.s)), (x) => (x.g ? checksBox(x.g) : stepsBox(x.s, { titled: true })), (x) => x.key);
-      fill(fixes, model.needsFix, vSig, verdictRow);
-      fill(cands, model.candidates, vSig, verdictRow);
-      fill(problems, model.problems, rowSig, problemRow);
-      const shown = store.showAllFinished ? model.finished : model.finished.slice(0, FINISHED_SHOWN);
-      fill(finished, shown, rowSig, finishedRow);
-      finished.head.hidden = model.finished.length === 0;
-      finished.n.textContent = model.finished.length || '';
-      seenAll.hidden = !model.finished.some((s) => s.unread);
-      more.hidden = model.finished.length <= FINISHED_SHOWN;
-      more.textContent = store.showAllFinished ? `新しい${FINISHED_SHOWN}件だけ表示` : `ほか${model.finished.length - FINISHED_SHOWN}件を表示`;
-      fill(active, model.active, rowSig, activeRow);
-      const news = knowledgeNews(store.state);
-      fill(learned, news.count ? [news] : [], (x) => `${x.count}|${x.latest.map((e) => e.id + e.text).join('|')}`, (x) => el('div', { class: 'result kn-news' },
-        icon('bulb', 's'),
-        el('button', { class: 'quiet t', title: 'こだわりの画面で見る・直す', onclick: () => go('#/knowledge') }, `${x.count}件のこだわりを自動で記録しました`),
-        el('span', { class: 'do' },
-          el('button', { onclick: () => go('#/knowledge') }, icon('pencil', 's'), '見る・直す'),
-          el('button', { title: '内容はそのままで、新着から外す', onclick: () => markKnowledgeSeen() }, icon('check', 's'), '確認済み')),
-        el('span', { class: 'x' }, x.latest.map((e) => `「${e.text.replace(/\s+/g, ' ').slice(0, 60)}」`).join(' ') + (x.count > x.latest.length ? ` ほか${x.count - x.latest.length}件` : ''))), () => 'news');
-    },
-  };
-}
+const newsRow = (x) => el('div', { class: 'result kn-news' },
+  icon('bulb', 's'),
+  el('button', { class: 'quiet t', title: 'こだわりの画面で見る・直す', onclick: () => go('#/knowledge') }, `${x.count}件のこだわりを自動で記録しました`),
+  el('span', { class: 'do' },
+    el('button', { onclick: () => go('#/knowledge') }, icon('pencil', 's'), '見る・直す'),
+    el('button', { title: '内容はそのままで、新着から外す', onclick: () => markKnowledgeSeen() }, icon('check', 's'), '確認済み')),
+  el('div', { class: 'x kn-added' }, ...x.lines.map((line) => el('p', {}, line))));
+const newsSig = (x) => x.lines.join('\n');
+
+/** What one orbit entry (logic/orbits.js) is drawn as, and the signature that says when to draw it again. */
+const VIEWS = {
+  ask: { build: (e) => ticket(e.item), sig: (e) => ticketSig(e.item) },
+  waiting: { build: (e) => waitingRow(e.s), sig: (e) => rowSig(e.s) },
+  look: { build: (e) => checksBox(e.g), sig: (e) => checksSig(e.g) },
+  steps: { build: (e) => stepsBox(e.s, { titled: true }), sig: (e) => stepsSig(e.s) },
+  fix: { build: (e) => verdictRow(e.s), sig: (e) => vSig(e.s) },
+  candidate: { build: (e) => verdictRow(e.s), sig: (e) => vSig(e.s) },
+  problem: { build: (e) => problemRow(e.s), sig: (e) => rowSig(e.s) },
+  finished: { build: (e) => finishedRow(e.s), sig: (e) => rowSig(e.s) },
+  news: { build: (e) => newsRow(e.news), sig: (e) => newsSig(e.news) },
+  running: { build: (e) => goingRow(e.s), sig: (e) => rowSig(e.s) },
+  queued: { build: (e) => goingRow(e.s), sig: (e) => rowSig(e.s) },
+};
+export const entryNode = (e) => VIEWS[e.kind].build(e);
+export const entrySig = (e) => `${e.kind}|${VIEWS[e.kind].sig(e)}`;

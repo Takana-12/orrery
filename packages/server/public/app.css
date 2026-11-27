@@ -220,13 +220,6 @@ h2 { font-size: 14px; font-weight: 600; margin: 30px 0 4px; display: flex; align
 .err { color: var(--red); font-size: 13px; }
 .err:empty { display: none; }
 
-/* ---------- nothing waiting: the one place the orrery is drawn large ---------- */
-.clear { display: grid; justify-items: center; gap: 14px; padding: 44px 24px 36px; }
-.clear .voice-orb { width: 240px; margin: -26px 0 -30px; } /* the voice layer's sphere; its halo reaches past the text's gap */
-.clear strong { font-size: 16px; font-weight: 600; }
-.clear .counts { display: flex; gap: 16px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.clear .counts span { display: inline-flex; gap: 6px; align-items: center; }
-
 /* ---------- a request: a block between two hairlines, not a card ---------- */
 .ticket, .steps { border-top: 1px solid var(--line); padding: 14px 0 18px; }
 .ticket.answering { opacity: .7; }
@@ -235,7 +228,7 @@ h2 { font-size: 14px; font-weight: 600; margin: 30px 0 4px; display: flex; align
 .ticket-head .kind { color: var(--acc); font-weight: 600; display: inline-flex; gap: 6px; align-items: center; flex: none; }
 .ticket-head .where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticket-head .age { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
-.ask, .clear strong, .result .t, h1 { word-break: auto-phrase; text-wrap: pretty; }
+.ask, .result .t, h1 { word-break: auto-phrase; text-wrap: pretty; }
 .narrow-only { display: none; margin-left: auto; font-size: 14px; }
 .ask { font-size: 17px; font-weight: 600; line-height: 1.45; margin: 8px 0 8px; overflow-wrap: anywhere; }
 .ask .opt-mark { font-size: 12.5px; font-weight: 400; color: var(--ink-2); margin-left: 6px; }
@@ -457,20 +450,56 @@ button.cmd { display: inline; padding: 0; border: 0; border-radius: 2px; font: 0
 /* App update (settings) */
 .upd-log { font-size: 12px; max-height: 180px; overflow: auto; background: var(--raise); border: 1px solid var(--line); border-radius: var(--r-s); padding: 8px 10px; margin: 6px 0; color: var(--ink-2); }
 
-/* Home: the inbox fills the screen and scrolls under the new-work composer, which is pinned to the bottom with every
-   option and the start button on one line. Nothing above the box is painted, so a tall box never lays a slab over the
-   list: only the box and what is below it are (.dock), and attachments blur what passes under them.
-   --foot-h is the foot's height (home.js), so the end of the list can always be scrolled clear of it. */
-.session.home { grid-template-rows: minmax(0, 1fr); }
-.session.home > .s-body, .session.home > .s-foot { grid-area: 1 / 1; }
-.home .s-body { padding-top: 6px; padding-bottom: calc(var(--foot-h, 200px) + 16px); }
-.home .s-foot { align-self: end; z-index: 2; max-height: none; overflow: visible; padding-bottom: 0; pointer-events: none; }
+/* Home: the sphere in the space the new-work box leaves free, the box pinned to the bottom with every option and the
+   start button on one line. Every thing that waits for the human circles the sphere as a point (views/home.js); a click
+   brings it up front in a panel that is a little see-through, and closing it lets it dissolve into the space.
+   --foot-h is the foot's height (home.js): the sphere and the panel keep clear of it. */
+.session.home { grid-template-rows: minmax(0, 1fr); position: relative; }
+.session.home > .s-body, .session.home > .s-foot, .session.home > .orbit-front { grid-area: 1 / 1; }
+.home .s-body { overflow: hidden; padding: 6px 20px calc(var(--foot-h, 200px) + 8px); }
+.home .s-foot { align-self: end; z-index: 4; max-height: none; overflow: visible; padding-bottom: 0; pointer-events: none; }
 .home .s-foot form.new > * { pointer-events: auto; }
 .home .s-foot .dock { background: var(--bg); margin: 0 -20px; padding: 0 20px 18px; }
 .home .att { -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 @media (max-width: 560px) {
   .home .s-foot { position: sticky; bottom: 0; }
   .home .s-foot .dock { margin: 0 -14px; padding: 0 14px 18px; }
+}
+
+.orbit-stage { position: relative; height: 100%; min-height: 360px; isolation: isolate; }
+.orbit-stage .voice-orb { position: absolute; left: 50%; top: var(--cy, 50%); width: var(--orb, 300px); margin: 0; translate: -50% -50%; transition: translate .9s var(--ease), scale .9s var(--ease); }
+.orbit-sky { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.orbit-dots { position: absolute; inset: 0; pointer-events: none; }
+.orbit-dots > * { pointer-events: auto; }
+/* The sphere as a button: invisible, round, a little larger than the sphere it covers (--sr is its radius). */
+.orbit-mic { position: absolute; left: 50%; top: var(--cy, 50%); width: calc(var(--sr, 40px) * 2.8); height: calc(var(--sr, 40px) * 2.8); translate: -50% -50%; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; }
+.orbit-mic:hover:not(:disabled) { background: none; }
+.orbit-mic:focus-visible { outline: 2px solid var(--ink); outline-offset: calc(var(--sr, 40px) * -0.3); }
+/* A point: the light itself is drawn on the skies (views/home.js); this is a large, invisible hit area over it, with
+   its workspace faint underneath, fainter on the far side of its orbit and not at all while the sphere hides it. */
+.o-dot { position: absolute; left: 0; top: 0; width: 56px; height: 56px; padding: 0; border: 0; border-radius: 50%; background: none; display: block; will-change: transform; }
+.o-dot:hover:not(:disabled) { background: none; }
+.o-dot .ws { position: absolute; left: 50%; top: calc(50% + 13px); translate: -50% 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 1.3; color: var(--ink-2); opacity: calc(.25 + var(--near, 1) * .5); transition: opacity var(--t-s) var(--ease); }
+.o-dot.arc .ws { max-width: var(--arc-w, 160px); }
+.o-dot.behind { pointer-events: none; } /* hidden by the sphere: a tap there is the sphere's */
+.o-dot.behind .ws { opacity: 0; }
+.o-dot:hover .ws, .o-dot:focus-visible .ws, .o-dot[aria-expanded=true] .ws { opacity: 1; }
+.o-dot:focus-visible { outline: 2px solid var(--ink); outline-offset: -12px; }
+.o-dot:disabled { pointer-events: none; }
+
+/* The panel: up front, over the sphere, a little see-through. */
+.orbit-front { z-index: 5; display: grid; place-items: center; padding: 20px 20px calc(var(--foot-h, 200px) + 12px); pointer-events: none; min-height: 0; }
+.orbit-panel { grid-area: 1 / 1; pointer-events: auto; width: min(760px, 100%); max-height: 100%; overflow: auto; padding: 8px 20px 14px; border: 1px solid var(--line); border-radius: var(--r); background: color-mix(in srgb, var(--raise) 90%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: var(--shadow); animation: op-in var(--t) var(--ease); }
+.orbit-panel:focus { outline: none; }
+.op-head { display: flex; align-items: center; gap: 10px; min-height: 30px; }
+.op-head .ib { margin-left: -8px; }
+.op-body > .ticket, .op-body > .steps, .op-body > .result { border-top: 0; padding-top: 6px; }
+.orbit-panel.leaving { pointer-events: none; animation: op-out .6s var(--ease) forwards; }
+@keyframes op-in { from { opacity: 0; scale: .94; filter: blur(4px); } }
+/* Closing retraces opening: it shrinks back into the point it grew out of (transform-origin is that point). */
+@keyframes op-out { to { opacity: 0; scale: .85; filter: blur(6px); } }
+@media (prefers-reduced-motion: reduce) {
+  .orbit-panel, .orbit-panel.leaving { animation: none; }
 }
 .composer .bar.one-line { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .composer .bar.one-line > * { flex: none; }
@@ -493,7 +522,15 @@ button.cmd { display: inline; padding: 0; border: 0; border-radius: 2px; font: 0
 .strip.sending.failed { cursor: pointer; opacity: 1; }
 .sending-box:not(:empty) { margin-top: 6px; }
 /* New work: what was just sent, attachments above the box */
-.sent-note:not(:empty) { display: flex; gap: 8px; align-items: center; justify-self: start; max-width: 100%; min-width: 0; white-space: nowrap; font-size: 13px; color: var(--ink); padding: 6px 8px 6px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raise); box-shadow: var(--shadow); }
+/* The note floats over the screen just above the box: it takes no room in the layout, so neither the box nor the
+   sphere and its orbits behind it move when it comes and goes. */
+form.new { position: relative; }
+.sent-note:empty { display: none; }
+.sent-note:not(:empty) { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 5; display: flex; gap: 8px; align-items: center; max-width: 100%; min-width: 0; white-space: nowrap; font-size: 13px; color: var(--ink); padding: 6px 8px 6px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raise); box-shadow: var(--shadow); animation: sent-in .18s ease-out; transform-origin: left bottom; }
+.sent-note.leaving { animation: sent-out .18s ease-in forwards; pointer-events: none; }
+@keyframes sent-in { from { opacity: 0; transform: translateY(6px) scale(.97); } }
+@keyframes sent-out { to { opacity: 0; transform: translateY(6px) scale(.97); } }
+@media (prefers-reduced-motion: reduce) { .sent-note:not(:empty), .sent-note.leaving { animation-duration: 1ms; } }
 .sent-note .what { display: flex; min-width: 0; }
 .sent-note .what .cut { overflow: hidden; text-overflow: ellipsis; min-width: 1em; }
 .sent-note > :not(.what) { flex: none; }
@@ -701,7 +738,9 @@ textarea.voice-words { width: min(280px, 100%); min-height: 4.5em; max-height: 2
 .kn-new-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 8px; }
 .kn-new-domain h2 { display: flex; gap: 6px; align-items: center; }
 .kn-new-domain h2 .kn-count { margin-left: auto; font-weight: 400; }
-.kn-news .x { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kn-news .x.kn-added { grid-column: 2 / 4; display: block; -webkit-line-clamp: none; overflow: visible; color: var(--ink); }
+.kn-added p { margin: 0; white-space: pre-wrap; }
+.kn-added p + p { margin-top: 4px; }
 .kn-h1 .kn-tune-open { margin-left: auto; font-size: 13px; font-weight: 500; }
 .kn-save { width: 30px; height: 30px; }
 .ib.copy { color: var(--ink-2); }
@@ -816,18 +855,22 @@ textarea.voice-words { width: min(280px, 100%); min-height: 4.5em; max-height: 2
 .set-row.proj.pending { opacity: .55; }
 
 /* ---------- voice input: one layer over the screen on the right ----------
-   While it is open, the rail stays where it is (remaining limits, settings, the work list) and everything on the right
-   dissolves (the screen, chats, notices); what is left there is the sphere, what was heard, and the work it became.
-   Closing it brings the screen back the same way. On narrow screens (one column) the layer takes the whole screen. */
+   While it is open, the rail stays where it is (remaining limits, settings, the work list) and the screen on the right
+   sinks behind it, faint and blurred, still there to be sensed (the conversation the words may answer) but not read
+   over the layer's own words; chats and notices dissolve. What is in front is the sphere, what was heard, and the work
+   it became. Closing it brings the screen back the same way. On narrow screens (one column) the layer takes the whole
+   screen, with the same faint screen behind it. */
 .main, .chat-dock, .notices, .banner { transition: opacity var(--t-l) var(--ease), filter var(--t-l) var(--ease), transform var(--t-l) var(--ease); }
-body[data-voice] :is(.main, .chat-dock, .notices, .banner) { opacity: 0; filter: blur(12px); transform: scale(.985); pointer-events: none; }
+body[data-voice=on] .main { opacity: .22; filter: blur(10px) saturate(.7); transform: scale(.985); pointer-events: none; }
+body[data-voice=on] :is(.chat-dock, .notices, .banner), body[data-voice=home] :is(.chat-dock, .notices, .banner) { opacity: 0; filter: blur(12px); transform: scale(.985); pointer-events: none; }
 body[data-voice] .rail-grip { pointer-events: none; }
 :root:has(body[data-voice]) { overflow: hidden; } /* the page under the layer does not scroll (nor show a scrollbar) */
 .voice { position: fixed; inset: 0 0 0 var(--rail-w); z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 24px 20px 28px; overflow: auto; outline: none; container-type: inline-size;
   visibility: hidden; opacity: 0; pointer-events: none; transition: opacity var(--t-l) var(--ease), visibility 0s linear var(--t-l); }
 @media (max-width: 560px) {
   .voice { left: 0; }
-  body[data-voice] .app { opacity: 0; pointer-events: none; }
+  body[data-voice=on] .rail { opacity: 0; }
+  body[data-voice=on] .app { pointer-events: none; }
 }
 body[data-voice] .voice { visibility: visible; opacity: 1; pointer-events: auto; transition: opacity var(--t-l) var(--ease) .1s, visibility 0s; }
 /* the sphere: large while it listens and thinks, small above the plan */
@@ -854,8 +897,23 @@ body[data-voice] .voice { visibility: visible; opacity: 1; pointer-events: auto;
 .vt-meta { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; min-width: 0; }
 .voice-tasks > :only-child .vt-drop { display: none; }
 .voice-bar { width: min(640px, 100%); min-height: 34px; margin-top: 10px; display: flex; gap: 6px; align-items: center; }
+/* On the home screen the layer is not a screen of its own: its sphere is the home screen's, which swells and comes
+   forward (a little larger, lifted clear of the words; voice-layer.js sets --v-scale and --v-lift), springing out as it
+   wakes (voice-orb.js). What surrounds it recedes: the orbits and their points fall back, small and blurred, the
+   new-work box and an open panel dissolve. Only the words and the controls appear, at the bottom, where the box was.
+   Closing it, everything glides back the same way. */
+body[data-voice=home] .orbit-stage .voice-orb { scale: var(--v-scale, 1.22); translate: -50% calc(-50% - var(--v-lift, 0px)); transition: translate .9s var(--ease), scale 1.1s cubic-bezier(.3, 1.35, .45, 1); }
+.home :is(.orbit-sky, .orbit-dots, .orbit-front, .s-foot) { transition: opacity var(--t-l) var(--ease), filter var(--t-l) var(--ease), scale var(--t-l) var(--ease); }
+body[data-voice=home] .home :is(.orbit-sky, .orbit-dots) { opacity: .2; filter: blur(3px); scale: .94; }
+body[data-voice=home] .home :is(.orbit-front, .s-foot) { opacity: 0; filter: blur(10px); }
+body[data-voice=home] .voice > .voice-orb { display: none; }
+body[data-voice=home] .voice > .voice-say { margin-top: auto; }
+body[data-voice=home] .voice-say { min-height: 0; }
 @media (prefers-reduced-motion: reduce) {
-  .main, .chat-dock, .notices, .banner, .voice, body[data-voice] .voice, .voice-orb { transition: none; }
-  body[data-voice] :is(.main, .chat-dock, .notices, .banner) { filter: none; transform: none; }
+  .main, .chat-dock, .notices, .banner, .voice, body[data-voice] .voice, .voice-orb, .orbit-stage .voice-orb, .home :is(.orbit-sky, .orbit-dots, .orbit-front, .s-foot) { transition: none; }
+  body[data-voice=home] .orbit-stage .voice-orb { scale: 1; }
+  body[data-voice=home] .home :is(.orbit-sky, .orbit-dots) { filter: none; scale: 1; }
+  body[data-voice] :is(.main, .chat-dock, .notices, .banner) { transform: none; }
+  body[data-voice] :is(.chat-dock, .notices, .banner) { filter: none; }
   .voice-state.thinking { animation: none; opacity: .8; }
 }

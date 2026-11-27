@@ -9,6 +9,7 @@ import { act, startWork, addProjectFromFolder, renameProject, runStep, sendAnswe
 import { fullStamp, leftTone, stamp } from '../public/js/logic/format.js';
 import { ARCHIVE_FOLD, advanceAccordion, archiveModel, busyCount, checkGroups, inInbox, inboxModel, inboxStepIndexes, isOpen, limitsModel, newVersionText, railModel, sessionModel, workStepsModel } from '../public/js/logic/selectors.js';
 import { parseRoute, routeKey } from '../public/js/logic/route.js';
+import { arcEntries, arcSpots, assignRings, orbitEntries } from '../public/js/logic/orbits.js';
 import { leadInText, looksLikeCommand, toolSummary } from '../public/js/logic/text.js';
 import { inline, parseMarkdown, plainText } from '../public/js/logic/markdown.js';
 
@@ -641,11 +642,16 @@ test('usage: each limit is measured the way the server measures it, and warns ne
   assert.equal(big.total.chars, [HEADING, '### 文章・言葉づかい', 'い'.repeat(5000)].join('\n').length);
 });
 
-test('news: what was recorded by itself, newest first, and the areas in order with the most repeated first', () => {
-  const st = kSnap([kEntry('old', 'ui', '古い', { seen: false, createdAt: NOW - 10 }), kEntry('new', 'ui', '新しい', { seen: false, createdAt: NOW, hits: 3 }), kEntry('seen', 'writing', '見た')]);
+test('news: only the lines recorded by themselves, in full, newest first, and the areas in order with the most repeated first', () => {
+  const long = 'あ'.repeat(200);
+  const st = kSnap([
+    kEntry('old', 'ui', '古い', { seen: false, createdAt: NOW - 10, updatedAt: NOW - 10 }),
+    kEntry('new', 'ui', `前からある決まり\n${long}\n追加した決まり`, { seen: false, createdAt: NOW, updatedAt: NOW, hits: 3, added: [long, '追加した決まり'] }),
+    kEntry('seen', 'writing', '見た'),
+  ]);
   const n = knowledgeNews(st);
-  assert.equal(n.count, 2);
-  assert.deepEqual(n.latest.map((e) => e.id), ['new', 'old']);
+  assert.equal(n.count, 3);
+  assert.deepEqual(n.lines, [long, '追加した決まり', '古い'], 'what was there before is left out; nothing is cut');
   const m = knowledgeModel(st);
   assert.deepEqual(m.map((x) => x.domain.id), ['ui', 'writing', 'other']);
   assert.deepEqual(m[0].entries.map((e) => e.id), ['old', 'new']);
@@ -824,4 +830,61 @@ test('a question lead-in drops a closing paragraph that only repeats the questio
   assert.equal(leadInText(`${plan}\n\nBは途中の値も保存されます。どちらにしますか？`, ['どちらにしますか']), `${plan}\n\nBは途中の値も保存されます。どちらにしますか？`);
   assert.equal(leadInText('進めてよいですか？', ['進めてよいですか']), null);
   assert.equal(leadInText(null, ['q']), null);
+});
+
+test('home: every thing that waits for the human lies on the arc once; work still going and replies already read do not', () => {
+  const state = snapshot([
+    sess('asked', { lifecycle: 'waiting_for_user', projectName: 'orrery' }),
+    sess('waits', { lifecycle: 'waiting_for_user', completion: 'working' }),
+    sess('runs', { lifecycle: 'running', completion: 'working' }),
+    sess('fails', { completion: 'needs_fix' }),
+    sess('can-finish', { completion: 'candidate' }),
+    sess('stopped', { lifecycle: 'error', completion: 'working' }),
+    sess('replied', { projectName: 'ledger', extraProjectNames: ['web'], unread: true }),
+    sess('read', { projectName: 'ledger' }),
+    sess('mine', { completion: 'human_steps', task: { humanSteps: [{ title: 'アプリを入れ直す', done: false }] } }),
+    sess('put-away', { archived: true }),
+  ], [item('q', 'asked', { projectName: 'orrery', taskTitle: 'asked' })]);
+  const entries = arcEntries(state);
+  assert.deepEqual(entries.map((e) => e.key), ['ask:q', 'waiting:waits', 'steps:mine', 'fix:fails', 'candidate:can-finish', 'problem:stopped', 'finished:replied']);
+  assert.equal(entries[0].workspace, 'orrery');
+  assert.equal(entries[0].sid, 'asked'); // a request carries its work's id, so the light can glide from its orbit
+  assert.equal(entries.at(-1).workspace, 'ledger・web');
+  assert.deepEqual(orbitEntries(state).map((e) => e.key), ['running:runs']);
+});
+
+test('home: work still going circles, one point each, and work that waits for the human is not on an orbit', () => {
+  const state = snapshot([
+    sess('runs', { lifecycle: 'running', completion: 'working', projectName: 'orrery' }),
+    sess('checks', { completion: 'validating' }),
+    sess('next', { lifecycle: 'queued', completion: 'working', queuePosition: 1 }),
+    sess('waits', { lifecycle: 'waiting_for_user', completion: 'working' }),
+    sess('done', {}),
+  ]);
+  const entries = orbitEntries(state);
+  assert.deepEqual(entries.map((e) => [e.key, e.sid]).sort(), [['queued:next', 'next'], ['running:checks', 'checks'], ['running:runs', 'runs']]);
+  assert.equal(entries.find((e) => e.sid === 'runs').workspace, 'orrery');
+});
+
+test('home: the arc is a parabola open upwards, symmetric, its lowest point in the middle, squeezed to fit its width', () => {
+  assert.deepEqual(arcSpots(0, { half: 300, depth: 30, gap: 76 }), []);
+  assert.deepEqual(arcSpots(1, { half: 300, depth: 30, gap: 76 }), [{ dx: 0, rise: 0 }]);
+  const three = arcSpots(3, { half: 300, depth: 30, gap: 76 });
+  assert.deepEqual(three.map((p) => p.dx), [-76, 0, 76]);
+  assert.equal(three[0].rise, three[2].rise);
+  assert.ok(three[0].rise > 0 && three[1].rise === 0);
+  const many = arcSpots(21, { half: 300, depth: 30, gap: 76 });
+  assert.equal(many[0].dx, -300);
+  assert.equal(many.at(-1).dx, 300);
+  assert.equal(many[0].rise, 30); // the ends are `depth` above the middle
+});
+
+test('home: a point keeps its orbit, new ones go where there are fewest, and fewer orbits move the rest inward', () => {
+  let rings = assignRings(new Map(), ['a', 'b', 'c', 'd'], 3);
+  assert.deepEqual([...rings], [['a', 0], ['b', 1], ['c', 2], ['d', 0]]);
+  rings = assignRings(rings, ['b', 'c', 'd', 'e'], 3); // a went away: e fills its orbit
+  assert.deepEqual([...rings], [['b', 1], ['c', 2], ['d', 0], ['e', 0]]);
+  rings = assignRings(rings, ['b', 'c', 'd', 'e'], 2);
+  assert.deepEqual([...rings], [['b', 1], ['d', 0], ['e', 0], ['c', 1]]);
+  assert.equal(assignRings(new Map(), ['x'], 9).get('x'), 0);
 });

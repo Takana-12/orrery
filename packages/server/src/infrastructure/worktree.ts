@@ -5,12 +5,15 @@
 //             (plumbing: no hooks run, the project's checkout is not touched). The branch is deleted when it holds
 //             nothing new (or is already merged into the project's HEAD); otherwise it is kept and reported.
 //   reopen  : resuming put-away work re-creates the worktree at the same path from the kept branch.
-// node_modules: a fresh worktree has none, so the project's own folder is linked in (a directory junction).
+// node_modules: a fresh worktree has none, so the project's own folder is linked in (a directory junction on Windows,
+// a symbolic link elsewhere). To git a junction is a folder, which the project's own "node_modules/" rule ignores; a
+// symbolic link is a file, which that rule does not cover, so it would show as untracked and an agent's "git add -A"
+// would commit it. Where the link shows, it is added to the repository's local exclude file (.git/info/exclude).
 // git would follow that junction when deleting the worktree and empty the project's node_modules, so every link we
 // made is unlinked first, and the folder is not removed while any link is left inside it.
 import { execFile } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
-import { basename, join, relative, resolve } from 'node:path';
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 
 export interface WorktreeInfo {
   sessionId: string;
@@ -36,6 +39,15 @@ const run = (cwd: string, args: string[], env?: Record<string, string>): Promise
       e ? fail(new Error(String(err || e.message).trim().split(/\r?\n/).slice(-3).join(' / '))) : ok(out),
     ),
   );
+
+/** The path with links and short names resolved, the way git reports paths (a folder reached through a link is still the same folder). */
+const real = (p: string): string => {
+  try {
+    return realpathSync.native(p);
+  } catch {
+    return resolve(p);
+  }
+};
 
 const isLink = (p: string): boolean => {
   try {
@@ -97,7 +109,7 @@ export class Worktrees {
     const name = `${basename(repo).replace(/[^\w.-]+/g, '_').slice(0, 40)}-${key}`;
     const path = join(dir, name);
     const branch = `orrery/${key}`;
-    const sub = relative(repo, resolve(projectRoot));
+    const sub = relative(real(repo), real(projectRoot));
     return { sessionId, repo, path, cwd: sub ? join(path, sub) : path, branch, base, createdAt: Date.now(), removedAt: null, keptBranch: false, links: [] };
   }
 
@@ -105,6 +117,24 @@ export class Worktrees {
   async materialize(info: WorktreeInfo, projectRoot: string): Promise<void> {
     await this.serial(info.repo, () => run(info.repo, ['worktree', 'add', '-b', info.branch, info.path, info.base]));
     this.linkModules(info, projectRoot);
+    await this.hideLinks(info);
+  }
+
+  /** Keep the links we made out of git's sight where they would show as untracked files (see the top of this file). */
+  private async hideLinks(info: WorktreeInfo): Promise<void> {
+    for (const rel of info.links) {
+      try {
+        const path = rel.split('\\').join('/');
+        if (!(await run(info.path, ['status', '--porcelain', '--', path])).trim()) continue;
+        // One exclude file serves the repository and all its worktrees; the pattern is anchored to the top of each.
+        const file = resolve(info.path, (await run(info.path, ['rev-parse', '--git-path', 'info/exclude'])).trim());
+        const line = `/${path}`;
+        const had = existsSync(file) ? readFileSync(file, 'utf8') : '';
+        if (had.split(/\r?\n/).includes(line)) continue;
+        mkdirSync(dirname(file), { recursive: true });
+        appendFileSync(file, `${had && !had.endsWith('\n') ? '\n' : ''}${line}\n`);
+      } catch {}
+    }
   }
 
   private linkModules(info: WorktreeInfo, projectRoot: string): void {
@@ -130,6 +160,7 @@ export class Worktrees {
     });
     const next = { ...info, removedAt: null, keptBranch: false };
     this.linkModules(next, projectRoot);
+    await this.hideLinks(next);
     return next;
   }
 

@@ -1,0 +1,44 @@
+# Every push and pull request is checked on both systems Orrery supports. A change made on one must not break
+# the other, and nobody is expected to own both machines: this is where the other one is tried.
+# What is checked, and why it is enough to trust: docs/08-対応OSと移植層.md, section 5.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Windows, os: windows-latest }
+          - { name: macOS, os: macos-latest }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # Some tests make small git repositories of their own and commit in them.
+      - run: git config --global user.name "CI" && git config --global user.email "ci@example.invalid" && git config --global init.defaultBranch main
+      - run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Tests (no agents, no accounts)
+        run: npm test
+      - name: Build the app and run it (starts, answers, stops)
+        if: ${{ !cancelled() }}
+        run: node scripts/smoke-packaged.mjs --in-place

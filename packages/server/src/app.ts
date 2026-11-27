@@ -5,7 +5,7 @@
 //                   not have to be (scheduler: how many at once; checker: did it pass; reader: what is left for me)
 //   #core           decides: the event-sourced state and the rules for answers, acceptance and completion
 //   infrastructure/ writes and runs: SQLite, git worktrees, the shell, attached files
-//   #provider-*, #host-windows   the outside world: the agents and the operating system
+//   #provider-*, #host   the outside world: the agents and the operating system (one implementation per OS)
 // Dependencies point inwards only; nothing below application/ knows HTTP exists.
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -17,11 +17,11 @@ import { CodexAdapter } from '#provider-codex';
 import type { CodexStartOptions } from '#provider-codex';
 import { ClaudeAdapter } from '#provider-claude';
 import type { ClaudeOptions, ClaudeStartExtras } from '#provider-claude';
-import { protect, unprotect } from '#host-windows';
+import { pickFolder as pickFolderDialog, protect, unprotect } from '#host';
 import { SqliteStore } from './infrastructure/sqlite-store.ts';
 import { Worktrees } from './infrastructure/worktree.ts';
 import { AttachmentFiles } from './infrastructure/attachment-files.ts';
-import { pickFolderDialog, pullRequestOf } from './infrastructure/shell.ts';
+import { pullRequestOf } from './infrastructure/shell.ts';
 import { ChosenSpeech } from './infrastructure/speech.ts';
 import type { Speech } from './infrastructure/speech.ts';
 import { Accounts } from './application/accounts.ts';
@@ -50,7 +50,7 @@ export { HttpError };
 
 export interface AppOptions {
   dbPath: string;
-  /** Shell-provided folder chooser (the Windows app uses the standard Explorer dialog). */
+  /** Shell-provided folder chooser (the desktop app uses the system's own dialog). */
   pickFolder?: () => Promise<string | null>;
   /** Shell-provided "open this page in the default browser" (used for the providers' sign-in pages). */
   openExternal?: (url: string) => void;

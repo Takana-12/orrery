@@ -1,6 +1,8 @@
 // Draws the Orrery icons (no image tools needed): three tilted orbits around a small pale star, on deep indigo.
 // An orrery is a model of bodies in orbit — here, agents going round while you watch from the middle.
 // The tray icon has two states: quiet (all bodies pale) and "needs you" (one body turns amber).
+// Windows takes icon.ico and the 32-pixel tray images; macOS takes icon.icns (the tile drawn smaller, with the margin
+// Mac icons have) and 18-point tray images with @2x versions for the menu bar.
 //   node apps/desktop/make-icons.mjs
 import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
@@ -36,10 +38,11 @@ const AMBER = [0xf4, 0xb7, 0x56];
 const STAR = [0xff, 0xf6, 0xe0];
 
 /** Colour of one sample point (0..1 coordinates). Returns [r, g, b, alpha 0..1]. */
-function sample(x, y, { alert, small }) {
-  // rounded tile with a soft radial indigo
-  const cx = x - 0.5;
-  const cy = y - 0.5;
+function sample(x, y, { alert, small, scale = 1 }) {
+  // rounded tile with a soft radial indigo; `scale` < 1 draws it smaller, leaving a transparent margin
+  const cx = (x - 0.5) / scale;
+  const cy = (y - 0.5) / scale;
+  if (Math.abs(cx) > 0.5 || Math.abs(cy) > 0.5) return [0, 0, 0, 0];
   const r = 0.22;
   const dx = Math.max(Math.abs(cx) - (0.5 - r), 0);
   const dy = Math.max(Math.abs(cy) - (0.5 - r), 0);
@@ -131,8 +134,30 @@ function ico(pngs) {
   return Buffer.concat([header, ...entries, ...pngs.map((p) => p.data)]);
 }
 
+/** An .icns that wraps PNG images (macOS 10.7 and later). */
+function icns(pngs) {
+  const TYPES = { 16: 'icp4', 32: 'icp5', 64: 'icp6', 128: 'ic07', 256: 'ic08', 512: 'ic09', 1024: 'ic10' };
+  const entries = pngs.map(({ size, data }) => {
+    const head = Buffer.alloc(8);
+    head.write(TYPES[size], 0, 'ascii');
+    head.writeUInt32BE(data.length + 8, 4);
+    return Buffer.concat([head, data]);
+  });
+  const body = Buffer.concat(entries);
+  const head = Buffer.alloc(8);
+  head.write('icns', 0, 'ascii');
+  head.writeUInt32BE(body.length + 8, 4);
+  return Buffer.concat([head, body]);
+}
+
 writeFileSync(join(here, 'icon.png'), png(256, { alert: true, small: false }));
 writeFileSync(join(here, 'icon.ico'), ico([16, 32, 48, 256].map((size) => ({ size, data: png(size, { alert: true, small: size < 48 }) }))));
 writeFileSync(join(here, 'tray.png'), png(32, { alert: false, small: true }));
 writeFileSync(join(here, 'tray-alert.png'), png(32, { alert: true, small: true }));
+// macOS: Apple's icon grid puts the tile at 824 of 1024 pixels.
+writeFileSync(join(here, 'icon.icns'), icns([16, 32, 64, 128, 256, 512, 1024].map((size) => ({ size, data: png(size, { alert: true, small: size < 48, scale: 824 / 1024 }) }))));
+for (const [name, alert] of [['tray-mac', false], ['tray-mac-alert', true]]) {
+  writeFileSync(join(here, `${name}.png`), png(18, { alert, small: true }));
+  writeFileSync(join(here, `${name}@2x.png`), png(36, { alert, small: true }));
+}
 console.log('icons written');

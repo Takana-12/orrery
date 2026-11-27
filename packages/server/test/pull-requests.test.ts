@@ -29,6 +29,7 @@ test('the pull request of a session is looked up on its branch and shown', async
   assert.equal(notified(), 1);
   await prs.tick(2);
   assert.equal(asked.length, 1, 'not asked again until something changes or time passes');
+  await new Promise((r) => setTimeout(r, 5)); // "something changed" is told by a later time stamp: let the clock move on
   core.sessionUpdate(s.id, { process: 'alive', lifecycle: 'running' });
   removed = true;
   await prs.tick(Date.now() + 1);

@@ -1,12 +1,12 @@
 // Start the control room core + local HTTP API. Used by both shells:
-//   - the Windows app (apps/desktop/main.mjs, Electron)
+//   - the desktop app (apps/desktop/main.mjs, Electron; Windows and macOS)
 //   - the console entry point (main.ts), kept for development and the end-to-end tests
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { createServer as createNetServer } from 'node:net';
-import { homedir } from 'node:os';
+import { defaultDataDir } from '#host';
 import { App } from './app.ts';
 import { startHttp } from './interface/http/server.ts';
 import type { AppUpdater } from './interface/http/server.ts';
@@ -20,7 +20,7 @@ export interface LaunchOptions {
   pickFolder?: () => Promise<string | null>;
   openExternal?: (url: string) => void;
   clearShellCache?: () => Promise<void>;
-  /** Rebuild/restart the app itself (Windows app only). */
+  /** Rebuild/restart the app itself (desktop app only). */
   appUpdate?: AppUpdater;
   /** Called when the UI asks the control room to shut down (tests). */
   onShutdownRequest?: () => void;
@@ -43,8 +43,7 @@ export class PortInUseError extends Error {
   }
 }
 
-export const defaultHome = (): string =>
-  resolve(process.env.CONTROL_ROOM_HOME ?? join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'AgentControlRoom'));
+export const defaultHome = (): string => resolve(process.env.CONTROL_ROOM_HOME ?? defaultDataDir());
 
 /** Fails fast, BEFORE the database is opened: opening it advances the generation and would retire a running instance's open requests. */
 function assertPortFree(port: number): Promise<void> {

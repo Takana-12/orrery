@@ -1,7 +1,7 @@
 {
   "name": "orrery",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -11,7 +11,7 @@
     "#core": "./packages/core/src/index.ts",
     "#provider-claude": "./packages/provider-claude/src/index.ts",
     "#provider-codex": "./packages/provider-codex/src/index.ts",
-    "#host-windows": "./packages/host-windows/src/index.ts"
+    "#host": "./packages/host/src/index.ts"
   },
   "scripts": {
     "start": "node packages/server/src/main.ts",
@@ -24,7 +24,8 @@
     "app": "electron .",
     "icons": "node apps/desktop/make-icons.mjs",
     "package": "node apps/desktop/package.mjs",
-    "install-app": "npm run package && powershell -NoProfile -ExecutionPolicy Bypass -File apps/desktop/install-shortcuts.ps1",
+    "install-app": "node apps/desktop/install.mjs",
+    "smoke": "node scripts/smoke-packaged.mjs",
     "screenshots": "electron scripts/readme-screenshots.mjs",
     "sync-public": "node scripts/sync-public.mjs"
   },

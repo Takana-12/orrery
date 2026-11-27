@@ -1,4 +1,5 @@
 import { env } from '../../logic/actions.js';
+import { SECRET_STORE } from '../../logic/platform.js';
 import { store } from '../../logic/store.js';
 import { $, busyWhile, el, put } from '../dom.js';
 import { icon } from '../icons.js';
@@ -43,7 +44,7 @@ export function envView(projectId) {
   });
   $('main').replaceChildren(el('div', { class: 'pad' },
     el('h1', {}, icon('key', 'l'), `${project.name} の環境変数`, el('button', { class: 'quiet narrow-only', onclick: () => go('#/settings') }, icon('back', 's'), '戻る')),
-    el('p', { class: 'note' }, 'このプロジェクトで始める作業のエージェントと、検証コマンドに渡されます。値はWindowsのユーザー単位の暗号化（DPAPI）で保存し、会話の記録や画面では変数名に置き換えて表示します。'),
+    el('p', { class: 'note' }, 'このプロジェクトで始める作業のエージェントと、検証コマンドに渡されます。値は' + SECRET_STORE + 'で保存し、会話の記録や画面では変数名に置き換えて表示します。'),
     el('p', { class: 'note' }, '注意: コマンドを実行できるエージェントは、渡された値を読めます。本番用の強い権限の値は入れないでください。次に始める作業から反映されます。'),
     list, el('h2', {}, icon('plus'), '追加・上書き'), form, err));
   load();

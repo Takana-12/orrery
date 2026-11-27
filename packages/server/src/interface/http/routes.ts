@@ -4,7 +4,7 @@ import type { App } from '../../app.ts';
 import { HttpError } from '../../application/errors.ts';
 import { MAX_VOICE_BYTES } from '../../application/voice.ts';
 
-/** Provided by the Windows app shell; absent when started from the console. */
+/** Provided by the desktop app shell; absent when started from the console. */
 export interface AppUpdater {
   status(): unknown;
   /** Rebuild from the source folder and restart into the new build. Returns once the build has started. */

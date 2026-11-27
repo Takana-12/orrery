@@ -1,5 +1,6 @@
 import { loadRaw, sendAnswer, submitAnswers } from '../logic/actions.js';
 import { ago } from '../logic/format.js';
+import { SEND_KEYS } from '../logic/platform.js';
 import { toggleTicket } from '../logic/selectors.js';
 import { store } from '../logic/store.js';
 import { el } from './dom.js';
@@ -43,7 +44,7 @@ function questionBody(item) {
     el('div', { class: 'acts' },
       item.allowDecline && el('button', { class: 'danger', disabled: locked, onclick: () => sendAnswer(item, { kind: 'decline' }) }, icon('x', 's'), '答えない'),
       el('span', { class: 'grow' }),
-      el('kbd', { class: 'hint', title: 'Ctrl+Enterで送信' }, 'Ctrl+Enter'),
+      el('kbd', { class: 'hint', title: `${SEND_KEYS}で送信` }, SEND_KEYS),
       el('button', { class: 'primary', onclick: submit, disabled: locked, 'data-submit': true }, icon('send', 's'), '回答を送る')),
   ];
 }

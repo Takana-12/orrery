@@ -1,4 +1,5 @@
 // Vocabulary: one lamp + one word per state. The only place that says how a state reads and looks.
+import { MOD } from '../logic/platform.js';
 import { ticketKind } from '../logic/selectors.js';
 import { icon, SVG } from './icons.js';
 
@@ -83,7 +84,7 @@ export const SHORTCUTS = [
   { keys: [['j'], ['k']], word: '次 / 前の項目' },
   { keys: [['1–9']], word: '選択肢を選ぶ' },
   { keys: [['Enter']], word: '項目を開く' },
-  { keys: [['Ctrl', 'Enter']], word: '送信' },
+  { keys: [[MOD, 'Enter']], word: '送信' },
   { keys: [['Esc']], word: '戻る' },
 ];
 export const EFFORT = { none: 'なし', minimal: '最小', low: '低', medium: '中', high: '高', xhigh: '最高', max: '最大', ultra: 'ウルトラ' };

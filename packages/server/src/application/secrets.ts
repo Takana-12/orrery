@@ -1,5 +1,5 @@
 // Project environment variables: values the human set for a project's agents and check commands.
-// Stored encrypted (DPAPI, per Windows user); the plain values live in memory only, and every text that is logged,
+// Stored encrypted for this user of this machine (#host: DPAPI on Windows, a keychain-held key on macOS); the plain values live in memory only, and every text that is logged,
 // stored or shown passes through redact() so a value never appears anywhere but in the agent's own environment.
 import { HttpError } from './errors.ts';
 import { mustProject } from './runtime.ts';
@@ -27,7 +27,7 @@ export class Secrets {
         m.set(row.name, cipher.unprotect(row.cipher));
         this.env.set(row.projectId, m);
       } catch {
-        console.error(`[control-room] 環境変数 ${row.name} を復号できませんでした（別のWindowsユーザーで保存された可能性）。無視します。`);
+        console.error(`[control-room] 環境変数 ${row.name} を復号できませんでした（別のユーザーまたは別のPCで保存された可能性）。無視します。`);
       }
     }
   }

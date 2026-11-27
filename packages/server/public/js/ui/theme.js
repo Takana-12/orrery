@@ -17,7 +17,7 @@ export function theme() {
 export function applyTheme(t = theme()) {
   if (t === 'auto') delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = t;
-  // In the desktop app, tell the window too, so the Windows title bar matches (apps/desktop/preload.cjs). Absent in a browser.
+  // In the desktop app, tell the window too, so the window's title bar matches (apps/desktop/preload.cjs). Absent in a browser.
   globalThis.orreryShell?.theme(t);
 }
 export function setTheme(t) {

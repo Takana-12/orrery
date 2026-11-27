@@ -1,5 +1,6 @@
 // Attachments: files and pasted pictures that go along with a message.
 import { saveAttachment } from '../logic/actions.js';
+import { MOD } from '../logic/platform.js';
 import { el, put } from './dom.js';
 import { icon } from './icons.js';
 
@@ -15,7 +16,7 @@ export function attachments(key, textarea, card, onError) {
   const list = attachDrafts.get(key) ?? attachDrafts.set(key, []).get(key);
   const tray = el('div', { class: 'attached' });
   const input = el('input', { type: 'file', multiple: true, hidden: true, tabindex: '-1', 'aria-hidden': 'true' });
-  const button = el('button', { type: 'button', class: 'quiet ib', title: 'ファイルを添付（画像は Ctrl+V でも貼れます）', 'aria-label': 'ファイルを添付', onclick: () => input.click() }, icon('clip'), input);
+  const button = el('button', { type: 'button', class: 'quiet ib', title: `ファイルを添付（画像は ${MOD}+V でも貼れます）`, 'aria-label': 'ファイルを添付', onclick: () => input.click() }, icon('clip'), input);
   const drop = (a) => { const i = list.indexOf(a); if (i >= 0) list.splice(i, 1); if (a.thumb) URL.revokeObjectURL(a.thumb); };
   const paint = () => {
     tray.hidden = !list.length;

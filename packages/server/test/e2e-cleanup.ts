@@ -8,9 +8,14 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, rmSync, unlinkSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
+import { realpathSync } from 'node:fs';
 
+/** Links and short names resolved first: git lists worktrees by their real path, a temporary folder is often reached through a link. */
 const norm = (p: string): string => {
-  const r = resolve(p);
+  let r = resolve(p);
+  try {
+    r = realpathSync.native(r);
+  } catch {}
   return process.platform === 'win32' ? r.toLowerCase() : r;
 };
 

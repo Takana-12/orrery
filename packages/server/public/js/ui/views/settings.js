@@ -3,6 +3,7 @@ import { askShutdown } from '../app-control.js';
 import { addProjectFromFolder, checkAppUpdate, loadAppUpdate, loadStorage, prepareVoice, purgeStorage, renameProject, runAppUpdate, setKnowledgeSettings, setProjectApproval, setProjectCapture, setProjectDescription, setProjectPreamble, setProjectWorktree, setSettings, setVoiceSettings } from '../../logic/actions.js';
 import { fullStamp } from '../../logic/format.js';
 import { knowledgeUsage } from '../../logic/knowledge.js';
+import { TRAY } from '../../logic/platform.js';
 import { newVersionText } from '../../logic/selectors.js';
 import { store } from '../../logic/store.js';
 import { AGENTS, usableAgents } from '../../logic/ai.js';
@@ -174,7 +175,7 @@ export function settingsView() {
     preState.textContent = dirty ? '未保存の変更があります' : '';
   };
   pre.addEventListener('input', paintPre);
-  pre.addEventListener('keydown', (e) => { if (e.key === 's' && e.ctrlKey) { e.preventDefault(); preSave.click(); } });
+  pre.addEventListener('keydown', (e) => { if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); preSave.click(); } });
   preSave.addEventListener('click', () => { setSettings({ preamble: pre.value }); paintPre(); });
 
   // ---- こだわり ----
@@ -244,7 +245,7 @@ export function settingsView() {
       : r.checkedAt ? `最新です${when}` : 'まだ確認していません';
     checkBtn.disabled = !!(r.checking || store.checkingUpdate);
   };
-  const stopBtn = el('button', { type: 'button', class: 'danger-fill', title: 'アプリ・サーバー・すべてのエージェントを終了します（通知領域にも残りません）', onclick: askShutdown }, icon('power', 's'), '完全に停止');
+  const stopBtn = el('button', { type: 'button', class: 'danger-fill', title: `アプリ・サーバー・すべてのエージェントを終了します（${TRAY}にも残りません）`, onclick: askShutdown }, icon('power', 's'), '完全に停止');
   const confirmStop = (what) => {
     const c = store.state.counts;
     const busy = c.running + c.waiting + c.queued;

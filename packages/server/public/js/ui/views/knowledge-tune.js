@@ -5,6 +5,7 @@
 // Layout: the conversation fills the screen, the box sits at the bottom with send at its right end (Ctrl+Enter).
 import { sendKnowledgeTune, setKnowledgeSettings } from '../../logic/actions.js';
 import { tuneModel } from '../../logic/knowledge.js';
+import { SEND_KEYS } from '../../logic/platform.js';
 import { store } from '../../logic/store.js';
 import { aiPicker } from '../ai-picker.js';
 import { $, el, sync } from '../dom.js';
@@ -37,7 +38,7 @@ export function knowledgeTuneView() {
   const body = el('div', { class: 'kt-body' }, empty, log, typing);
   const max = tuneModel(store.state).max;
   const text = el('textarea', { rows: '3', 'aria-label': 'こだわりにしたいこと', maxlength: String(max) });
-  const sendBtn = el('button', { type: 'button', class: 'primary ib', title: '送る (Ctrl+Enter)', 'aria-label': '送る' }, icon('send'));
+  const sendBtn = el('button', { type: 'button', class: 'primary ib', title: `送る (${SEND_KEYS})`, 'aria-label': '送る' }, icon('send'));
   const send = async () => {
     const said = text.value.trim();
     if (!said) return text.focus();

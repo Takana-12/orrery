@@ -1,5 +1,6 @@
 // The popup for writing a long message: a large box, × at the top right, 決定 at the bottom right.
 // Used for a project's default message. It only collects the words; what happens to them is the caller's.
+import { SEND_KEYS } from '../logic/platform.js';
 import { el } from './dom.js';
 import { icon, orrery } from './icons.js';
 
@@ -8,7 +9,7 @@ export function editMessage({ heading, title, value = '', placeholder = '' }) {
   return new Promise((done) => {
     const box = el('textarea', { class: 'md-text', placeholder, 'aria-label': heading });
     box.value = value;
-    const ok = el('button', { type: 'submit', class: 'primary', value: 'ok', title: '決定 (Ctrl+Enter)' }, icon('check', 's'), '決定');
+    const ok = el('button', { type: 'submit', class: 'primary', value: 'ok', title: `決定 (${SEND_KEYS})` }, icon('check', 's'), '決定');
     const d = el('dialog', { class: 'cmd-dialog msg-dialog', 'aria-labelledby': 'msg-dialog-h' },
       el('form', { method: 'dialog' },
         el('div', { class: 'cd-head' }, orrery(3, 'cd-mark'),

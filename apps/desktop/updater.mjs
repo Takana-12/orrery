@@ -1,20 +1,23 @@
 // "更新して再起動" in settings. The app normally never closes (it lives in the tray), so this is how a code change reaches it.
-//  - Packaged app (release\Orrery-win32-x64\Orrery.exe): build the new app into release\.staging while this one keeps running,
-//    then quit; update-swap.ps1 waits for the exit, swaps the folders and starts the new exe. The old build is kept until the swap succeeded.
+//  - Packaged app (release\Orrery-win32-x64\Orrery.exe, on macOS release/Orrery-darwin-<arch>/Orrery.app): build the new app into
+//    release\.staging while this one keeps running, then quit; the swap script (update-swap.ps1, on macOS update-swap.sh) waits for
+//    the exit, swaps the folders and starts the new app. The old build is kept until the swap succeeded.
+//    What differs between the two systems is in platform/.
 //  - Development (npm run app): the source is read at start, so a restart is the update.
 //  - "再起動" does the same as "更新" when the packaged app is older than its source, and only restarts otherwise.
 //  - A copy installed with "git clone" (its branch tracks origin/main) is checked for a newer version on GitHub when the
 //    app starts and every hour after. When there is one, "更新" first brings it in (git pull, then npm install if the
 //    dependencies changed) and goes on as above.
 // Restarting is never left to Electron's own relaunch: the new process would start while this one still holds the
-// single-instance lock and the port, and silently give up. update-swap.ps1 waits for this process to be gone (ending any
+// single-instance lock and the port, and silently give up. The swap script waits for this process to be gone (ending any
 // leftover Orrery process from the same folder) and only then starts the new one.
 import { app } from 'electron';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { checkRemote, installDeps, pullRemote } from './remote-version.mjs';
 import { sourceState } from './source-state.mjs';
+import { platform } from './platform/index.mjs';
 
 const FIRST_CHECK_MS = 15_000; // a little after start, so the check does not compete with opening the window
 const CHECK_EVERY_MS = 60 * 60_000;
@@ -24,8 +27,9 @@ const CHECK_EVERY_MS = 60 * 60_000;
  */
 export function createUpdater({ here, quit, onChange, startDir = process.cwd() }) {
   const packaged = app.isPackaged;
-  // The packaged app sits at <repo>\release\Orrery-win32-x64\Orrery.exe; development runs straight from <repo>.
-  const repo = packaged ? resolve(dirname(process.execPath), '..', '..') : resolve(here, '../..');
+  // The packaged app sits under <repo>\release; development runs straight from <repo>.
+  const repo = packaged ? platform.repoOfExe(process.execPath) : resolve(here, '../..');
+  const bundle = platform.bundleName(app.getName());
   const canBuild = existsSync(join(repo, 'apps/desktop/package.mjs')) && existsSync(join(repo, 'node_modules/@electron/packager'));
   let build = null;
   try {
@@ -80,17 +84,8 @@ export function createUpdater({ here, quit, onChange, startDir = process.cwd() }
     return { mode: packaged ? 'packaged' : 'dev', repo, canBuild, version: app.getVersion(), build, source, upToDate, remote, phase, startedAt, error, log: log.slice(-40) };
   }
 
-  /**
-   * Start update-swap.ps1 so that it outlives this process. A child started directly (even "detached") does not
-   * survive the app exiting here; one started through "cmd /c start" does.
-   */
-  function handOff({ script, exe, log: logFile, release, args = [], cwd = '' }) {
-    const ps = ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script, '-WaitPid', String(process.pid), '-Exe', exe, '-Log', logFile];
-    if (args.length) ps.push('-Arguments', args.join(' '));
-    if (cwd) ps.push('-WorkingDirectory', cwd);
-    if (release) ps.push('-Release', release);
-    spawn('cmd.exe', ['/d', '/c', 'start', '""', '/min', ...ps], { cwd: app.getPath('temp'), detached: true, stdio: 'ignore', windowsHide: true }).unref();
-  }
+  /** Start the swap script so that it outlives this process, and restarts the app once this process is gone. */
+  const handOff = (o) => platform.handOff({ ...o, pid: process.pid, bundle, tempDir: app.getPath('temp') });
 
   /** Restart; a packaged app whose source has changed since it was built is rebuilt first (the same as "更新"). */
   async function restart() {
@@ -98,7 +93,7 @@ export function createUpdater({ here, quit, onChange, startDir = process.cwd() }
     if (packaged && canBuild && phase !== 'restarting' && status().upToDate === false) return update();
     set('restarting');
     handOff({
-      script: join(here, 'update-swap.ps1'),
+      script: join(here, platform.swapScript),
       exe: process.execPath,
       log: join(app.getPath('temp'), 'orrery-restart.log'),
       // npm run app = "electron ." from the repository; the packaged exe needs nothing.
@@ -158,11 +153,11 @@ export function createUpdater({ here, quit, onChange, startDir = process.cwd() }
     child.on('error', (e) => set('failed', String(e?.message ?? e)));
     child.on('exit', async (code) => {
       if (phase !== 'building') return;
-      if (code !== 0 || !existsSync(join(staging, 'Orrery-win32-x64', 'Orrery.exe'))) return set('failed', `ビルドに失敗しました（終了コード ${code}）。いまのバージョンのまま動いています。`);
+      if (code !== 0 || !existsSync(platform.exeIn(join(staging, bundle), app.getName()))) return set('failed', `ビルドに失敗しました（終了コード ${code}）。いまのバージョンのまま動いています。`);
       set('restarting');
       handOff({
-        script: join(repo, 'apps/desktop/update-swap.ps1'),
-        exe: join(repo, 'release', 'Orrery-win32-x64', 'Orrery.exe'),
+        script: join(repo, 'apps/desktop', platform.swapScript),
+        exe: platform.exeIn(join(repo, 'release', bundle), app.getName()),
         log: join(repo, 'release', 'update.log'),
         release: join(repo, 'release'),
       });

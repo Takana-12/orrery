@@ -4,17 +4,7 @@
 // control room if it crashes.
 import koffi from 'koffi';
 
-export interface JobSample {
-  sampledAt: string;
-  /** What the numbers cover. Always stated, because "memory" without a definition is meaningless. */
-  scope: string;
-  processCount: number;
-  /** Physical RAM currently mapped, summed per process (shared pages are counted in each, so this overstates). */
-  workingSetBytes: number;
-  /** Committed private bytes (PrivateUsage). Commit charge, NOT physical RAM in use. */
-  privateBytes: number;
-  processes: { pid: number; image: string; workingSetBytes: number; privateBytes: number }[];
-}
+import type { Job, JobSample } from '../types.ts';
 
 const k32 = koffi.load('kernel32.dll');
 const CreateJobObjectW = k32.func('void* __stdcall CreateJobObjectW(void* attrs, void* name)');
@@ -36,7 +26,7 @@ const PROCESS_VM_READ = 0x0010;
 const PROCESS_SET_QUOTA = 0x0100;
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 
-export class WinJob {
+export class WinJob implements Job {
   private handle: unknown;
 
   constructor({ killOnClose = true }: { killOnClose?: boolean } = {}) {
@@ -118,5 +108,3 @@ export class WinJob {
     this.handle = null;
   }
 }
-
-export const mb = (bytes: number): number => Math.round((bytes / 1024 / 1024) * 10) / 10;

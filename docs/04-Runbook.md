@@ -1,6 +1,6 @@
 # Runbook：Orrery（旧称 Agent Control Room）v0.4
 
-- 対象：Windows 11、個人のローカル利用
+- 対象：Windows 11 と macOS（Apple シリコン）、個人のローカル利用。本文は Windows を例に書いてあり、macOS で違うところは「2-1. macOS の場合」と各所の注記にまとめた。両方で動かすための構造は [08-対応OSと移植層.md](08-対応OSと移植層.md)
 - 現状の到達点と未対応は [技術選定レポート §9](01-技術選定レポート.md) を参照
 
 ## 1. セットアップ
@@ -10,7 +10,8 @@
 | Node.js 24以上 | `node --version` |
 | Claude Codeにログイン済み | `claude auth status` で `loggedIn: true` |
 | Codexにログイン済み | Codexアプリ、またはVS Code拡張、または `codex login` でChatGPTにログイン |
-| Codexのバイナリ | 次の順で自動検出：環境変数 `CODEX_BIN` → PATH上の `codex.exe` → VS Code拡張（openai.chatgpt）の同梱バイナリ |
+| Git | `git --version`（macOS で入っていなければ `xcode-select --install`） |
+| Codexのバイナリ | 次の順で自動検出：環境変数 `CODEX_BIN` → PATH上の `codex`（Windowsは `codex.exe`。macOS はログインシェルの PATH と `/opt/homebrew/bin`・`/usr/local/bin` も見る） → VS Code拡張（openai.chatgpt）の同梱バイナリ |
 
 リポジトリのルートで依存を導入する。
 
@@ -22,7 +23,7 @@ Control Roomは認証情報を読まない。ログインは各社のツール�
 
 ## 2. アプリを作る・起動する・終了する
 
-Control RoomはWindowsのアプリ（Electron）として動く。最初に一度だけアプリを作り、スタートメニューに登録する。
+Control Roomはデスクトップアプリ（Electron）として動く。最初に一度だけアプリを作り、スタートメニュー（macOS は `~/Applications`）に登録する。コマンドは両方の OS で同じ。
 
 ```powershell
 npm run install-app
@@ -42,11 +43,28 @@ npm run install-app
 
 二重に起動しようとすると、既に開いているウィンドウが前面に出る。
 
+### 2-1. macOS の場合
+
+| | macOS では |
+|---|---|
+| 作られるもの | `release/Orrery-darwin-arm64/Orrery.app`（Intel は `Orrery-darwin-x64`）。`~/Applications/Orrery.app` がそこへのリンクになる（コピーはしない） |
+| 登録を消す | `bash apps/desktop/install-app.sh --remove` |
+| 起動 | Finder の「アプリケーション」（ホームの下）、Spotlight、Launchpad から「Orrery」 |
+| 閉じても残る場所 | メニューバーのアイコンと Dock。判断が必要になると通知が出て、メニューバーのアイコンが琥珀色になり、Dock のアイコンに件数のバッジが付いて 1 回跳ねる。Dock かメニューバーのアイコンでウィンドウが戻る |
+| 終了 | メニューバーのアイコン →「終了（エージェントも停止）」、または ⌘Q（動いている作業があれば確認が出る）。⌘W はウィンドウを閉じるだけ |
+| ログイン時に開始 | メニューバーのアイコンのメニューでチェックを入れる（実機で未確認） |
+| 送信のキー | ⌘+Enter（Ctrl+Enter も使える）。画面の表示も ⌘ になる |
+| データの場所 | `~/Library/Application Support/AgentControlRoom`（以下、本文の `%LOCALAPPDATA%\AgentControlRoom` をこう読み替える） |
+| 環境変数の値の暗号化 | ログインキーチェーンの項目「Orrery」に置いた鍵で AES-256-GCM。この項目を消すと、保存済みの値は読めなくなる（入れ直す） |
+| 音声入力 | はじめて使うときに macOS がマイクの許可をたずねる。断った場合は「システム設定 → プライバシーとセキュリティ → マイク」で Orrery をオンにする。アプリを更新すると、もう一度たずねられることがある |
+| PATH | Finder から起動したアプリには、ターミナルの PATH が渡らない。Orrery は起動時にログインシェル（`$SHELL -ilc`）の PATH を取り込むので、Homebrew や nvm で入れた `git`・`gh`・`npm`・`codex` も見つかる。シェルの設定ファイルを変えたら、Orrery を再起動する |
+| 署名 | 署名も公証もしていない（自分の Mac でビルドするので Gatekeeper の対象にならない）。警告が出たら、Finder で右クリック →「開く」 |
+
 | 環境変数 | 既定値 | 用途 |
 |---|---|---|
 | `CONTROL_ROOM_PORT` | `4780` | アプリ内部で使うポート（`127.0.0.1` のみ） |
-| `CONTROL_ROOM_HOME` | `%LOCALAPPDATA%\AgentControlRoom` | データの保存先 |
-| `CODEX_BIN` | 自動検出 | `codex.exe` のパス |
+| `CONTROL_ROOM_HOME` | `%LOCALAPPDATA%\AgentControlRoom`（macOS：`~/Library/Application Support/AgentControlRoom`） | データの保存先 |
+| `CODEX_BIN` | 自動検出 | Codex のバイナリのパス |
 
 開発時は、作り直さずに `npm run app` でアプリを起動できる。`npm start` は従来どおりブラウザ（Edge）で開く開発・テスト用の起動方法。
 
@@ -179,11 +197,11 @@ SELECT seq, datetime(at/1000,'unixepoch','localtime') AS at, type, payload FROM 
 
 | 起きたこと | Control Roomの動作 | 対処 |
 |---|---|---|
-| Control Roomが落ちた／強制終了した | 起動していたエージェントのプロセスはOSが全て終了させる（Job Objectのkill-on-close、実機確認済み） | 再起動する |
+| Control Roomが落ちた／強制終了した | Windows：起動していたエージェントのプロセスはOSが全て終了させる（Job Objectのkill-on-close、実機確認済み）。macOS：通常の終了と未処理のエラーでは Orrery が全て終了させる。`kill -9` や電源断のときは、エージェント本体は自分で終わるが、エージェントが起動したもの（開発サーバーなど）が残ることがある | 再起動する。macOS で残ったものは「アクティビティモニタ」で終了する |
 | 2つ目を起動した | 既に開いているウィンドウを前面に出す（未検証）。コンソール版（`npm start`）が動いている場合は、ポートが使用中というエラーを出して終了する | 既に開いているウィンドウを使う |
 | 再起動した | 履歴は復元される。再起動前に未回答だったカードは「失効」、実行中だったセッションは「中断」になる。「実行中」と誤表示はしない | 中断セッションの会話を開き、追加の指示を送る（再開される）。**未回答だった質問・承認は復元されない**ので、必要なら改めて指示する |
 | Codexのプロセスが落ちた | そのプロセスに載っていた全Codexセッションが「異常」になり、未回答カードは失効 | 各セッションに追加の指示を送ると新しいプロセスで再開する |
-| ウィンドウが見当たらない | 閉じてもトレイに残っている | 通知領域のアイコンをクリックする |
+| ウィンドウが見当たらない | 閉じてもトレイ（macOS：メニューバーと Dock）に残っている | 通知領域のアイコン（macOS：Dock かメニューバーのアイコン）をクリックする |
 | 画面に「接続が切れました」 | 表示は最新ではない可能性がある旨を表示し、自動で再接続を試みる | Control Roomが動いているか確認する |
 | 「このタブは認証されていません」 | トークンなしで開いた | 起動時のURLから開き直す |
 | カードを押したが「送信されませんでした」 | 既に失効・回答済み、または選べない決定だった。エージェントには何も送られていない | 表示された理由を確認する |
@@ -224,6 +242,8 @@ npm run typecheck
 - UIは依存なしのHTML・CSS・JS。React化は未着手。
 - アプリ自体が約450MBのメモリを使う（Electron、実測）。
 - 未検証：フォルダ選択ダイアログ（エクスプローラーの標準ダイアログに変更済み）、ログアウト状態の検知とログインの流れ（検証中にログアウトさせていないため）、二重起動時に既存のウィンドウが前面に出ること、Windows起動時の自動開始、終了時の確認ダイアログ、通知が実際に画面に表示されること（通知の発行までは確認済み）。
+- **macOS 版（v0.6.0〜）は、実機での確認がまだ済んでいない。** 自動テスト（GitHub Actions の macOS）で確かめてあるのは、プロセスの所有と一括終了、キーチェーンでの暗号化、アプリのビルド・起動・応答・停止、更新時の入れ替えスクリプト。未確認：メニューバーのアイコンの見え方、通知、マイクの許可、ログイン時の開始、Finder から開いたときの PATH の取り込み、Claude Code・Codex との実際のやりとり、Intel Mac。
+- macOS では、Orrery が `kill -9` や電源断で止まったとき、エージェントが起動したプロセスが残ることがある（6 章）。
 - インストーラーと自動更新はない。コードを更新したら設定の「更新して再起動」で作り直す（最初の1回は `npm run install-app`）。
 - 「更新して再起動」はビルドと入れ替えを個別に検証済み（一時フォルダで）。動いている本番のアプリからの通しの更新は未検証。
 

@@ -1,14 +1,15 @@
-// Process ownership: every provider process we start, and everything it spawns, lives in one kill-on-close job.
+// Process ownership: every provider process we start, and everything it spawns, lives in one kill-on-close job
+// (#host: a Job Object on Windows, tracked process groups on macOS).
 // That is how leftovers (dev servers, watchers) stay visible, measurable and removable.
 import type { AgentSession } from '#core';
-import { WinJob } from '#host-windows';
-import type { JobSample } from '#host-windows';
+import { createJob } from '#host';
+import type { Job, JobSample } from '#host';
 import { HttpError } from './errors.ts';
 import { mustSession } from './runtime.ts';
 import type { Runtime } from './runtime.ts';
 
 interface ProcessGroup {
-  job: WinJob;
+  job: Job;
   rootPid: number;
   sample: JobSample | null;
 }
@@ -35,7 +36,7 @@ export class Processes {
         previous.rootPid = pid;
         return;
       }
-      const job = new WinJob();
+      const job = createJob();
       job.assign(pid);
       this.groups.set(key, { job, rootPid: pid, sample: null });
     } catch (e) {

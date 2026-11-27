@@ -2,6 +2,7 @@
 // Someone who installed Orrery with "git clone" has a branch that tracks origin/main: a fetch tells whether it has moved
 // on. A repository without an upstream (a private development copy) is simply never checked.
 import { execFile } from 'node:child_process';
+import { platform } from './platform/index.mjs';
 
 const run = (cwd, file, args, timeout = 120_000) =>
   new Promise((resolve, reject) => {
@@ -64,13 +65,14 @@ export async function pullRemote(repo, log = () => {}) {
   return { from, to, depsChanged: changed.length > 0 };
 }
 
-/** npm install in the repository (npm is npm.cmd on Windows, so through cmd). */
+/** npm install in the repository. */
 export async function installDeps(repo, log = () => {}) {
   log('$ npm install');
   try {
-    const out = await run(repo, process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm install --no-audit --no-fund'], 600_000);
+    const npm = platform.npmInstall();
+    const out = await run(repo, npm.file, npm.args, 600_000);
     if (out) for (const line of out.split(/\r?\n/).slice(-10)) log(line);
   } catch (e) {
-    throw new Error(`npm install に失敗しました。コマンドプロンプトで「npm install」を実行してから、もう一度押してください。\n${e.message}`);
+    throw new Error(`npm install に失敗しました。${platform.words.terminal}で「npm install」を実行してから、もう一度押してください。\n${e.message}`);
   }
 }

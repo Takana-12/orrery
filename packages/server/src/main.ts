@@ -1,12 +1,12 @@
 // Agent Control Room: console entry point (development and end-to-end tests).
-// The everyday way to run it is the Windows app: see apps/desktop.
+// The everyday way to run it is the desktop app: see apps/desktop.
 //   node packages/server/src/main.ts [--no-open]
 // Environment:
 //   CONTROL_ROOM_PORT   (default 4780)
-//   CONTROL_ROOM_HOME   data directory (default %LOCALAPPDATA%\AgentControlRoom)
+//   CONTROL_ROOM_HOME   data directory (default: %LOCALAPPDATA%\AgentControlRoom, on macOS ~/Library/Application Support/AgentControlRoom)
 //   CONTROL_ROOM_TOKEN  fixed API token (tests only; otherwise random per start)
-//   CODEX_BIN           path to codex.exe (otherwise PATH, then the VS Code extension's bundled binary)
-import { spawn } from 'node:child_process';
+//   CODEX_BIN           path to the codex binary (otherwise PATH, then the VS Code extension's bundled binary)
+import { openAppWindow, openExternal } from '#host';
 import { launch } from './launch.ts';
 
 let stopping = false;
@@ -17,7 +17,6 @@ async function stop(): Promise<void> {
   process.exit(0);
 }
 
-const openExternal = (url: string): void => void spawn('cmd', ['/c', 'start', '', url.replace(/&/g, '^&')], { stdio: 'ignore', detached: true, windowsHide: true }).unref();
 const running = await launch({ onShutdownRequest: () => void stop(), openExternal }).catch((e) => {
   console.error(`[control-room] ${e.message}`);
   process.exit(1);
@@ -34,7 +33,5 @@ console.log(`[control-room] generation ${running.app.generation}, data: ${runnin
 console.log(`[control-room] open: ${running.url}`);
 
 if (!process.argv.includes('--no-open')) {
-  const child = spawn('cmd', ['/c', 'start', '', 'msedge', `--app=${running.url}`], { stdio: 'ignore', detached: true, windowsHide: true });
-  child.on('error', () => console.log('[control-room] Edgeを開けませんでした。上のURLをブラウザで開いてください。'));
-  child.unref();
+  openAppWindow(running.url, () => console.log('[control-room] ブラウザを開けませんでした。上のURLをブラウザで開いてください。'));
 }

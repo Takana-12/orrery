@@ -2,12 +2,13 @@
 // Plays the human through the same HTTP API the UI uses. Uses a throwaway data directory.
 //   node packages/server/test/e2e.ts
 // Costs a small amount of plan usage on both providers (Claude runs on haiku).
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { childImages } from '#host';
 import { removeRunWorktrees } from './e2e-cleanup.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -210,7 +211,7 @@ try {
   server.kill(); // TerminateProcess on Windows: no cleanup code runs
   await exited;
   await new Promise((r) => setTimeout(r, 2500));
-  const orphans = execFileSync('powershell', ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "ParentProcessId=${serverPid}" | Where-Object { $_.Name -match 'claude|codex' } | Measure-Object).Count`], { encoding: 'utf8' }).trim();
+  const orphans = String(childImages(serverPid).filter((image) => /claude|codex/i.test(image)).length);
   check('T11a', 'after a hard kill, no agent process we started is left running (kill-on-close job)', orphans === '0', `orphaned agent processes: ${orphans}`);
 
   await boot();

@@ -1,14 +1,15 @@
-// Orrery — the Windows app (Electron shell).
+// Orrery — the desktop app (Electron shell), for Windows and macOS. What differs between the two is in platform/.
 // The control room core runs inside this process; the window shows the same local UI the core serves.
-// Closing the window keeps the app (and the agents) running in the notification area; "終了" in the tray menu stops everything.
-import { app, BrowserWindow, Tray, Menu, Notification, dialog, ipcMain, nativeImage, nativeTheme, session, shell } from 'electron';
+// Closing the window keeps the app (and the agents) running in the notification area (macOS: the menu bar); "終了" in the tray menu stops everything.
+import { app, BrowserWindow, Tray, Menu, Notification, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { launch, PortInUseError } from '../../packages/server/src/launch.ts';
+import { adoptShellPath } from '../../packages/host/src/index.ts';
 import { allowMicrophoneOnly } from './permissions.mjs';
 import { createUpdater } from './updater.mjs';
+import { platform } from './platform/index.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const APP_ID = 'local.orrery';
@@ -16,13 +17,16 @@ app.setName('Orrery');
 app.setAppUserModelId(APP_ID); // groups the taskbar button and names the sender of notifications
 // Tests: a separate profile (own single-instance lock) so a second copy can run next to the everyday one.
 if (process.env.ORRERY_USER_DATA) app.setPath('userData', process.env.ORRERY_USER_DATA);
-// The packaged app does not stay in its own folder: a process whose working directory is releaseOrrery-win32-x64
+// The packaged app does not stay in its own folder: a process whose working directory is the app's folder under release
 // (this one, or anything it starts) would keep that folder from being swapped by an update.
 const startDir = process.cwd();
 if (app.isPackaged) {
   try {
     process.chdir(app.getPath('temp'));
   } catch {}
+  // Started from the desktop, not a terminal: take the PATH the person's shell has, so git, gh, npm and the agents'
+  // tools are found (a no-op where the desktop already passes it on).
+  adoptShellPath();
 }
 
 /** @type {Awaited<ReturnType<typeof launch>> | null} */
@@ -38,7 +42,10 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   // Opened again while this one is on its way out: get out of the way at once, so the next try starts cleanly.
   app.on('second-instance', () => (quitting ? app.exit(0) : showWindow()));
-  app.whenReady().then(start);
+  app.whenReady().then(() => {
+    platform.setUpApp({ app, Menu, showWindow, quit: (o) => quit(o) });
+    return start();
+  });
 }
 
 function showWindow(hash) {
@@ -51,29 +58,12 @@ function showWindow(hash) {
 
 let retriedPort = false;
 
-/** If the process listening on 127.0.0.1:<port> is an Orrery (or the development Electron), end it. True if one was ended. */
-function endStaleOrrery(port) {
-  try {
-    const net = execFileSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8', windowsHide: true });
-    const line = net.split(/\r?\n/).find((l) => new RegExp(`^\\s*TCP\\s+127\\.0\\.0\\.1:${port}\\s+\\S+\\s+LISTENING\\s+(\\d+)`).test(l));
-    const pid = Number(line?.trim().split(/\s+/).pop());
-    if (!pid || pid === process.pid) return false;
-    const image = execFileSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true }).split(',')[0]?.replace(/"/g, '').trim();
-    if (!/^(orrery|electron)\.exe$/i.test(image ?? '')) return false;
-    console.log(`[control-room] ending a leftover ${image} (pid ${pid}) that still holds port ${port}`);
-    execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function start() {
   const updater = createUpdater({ here, startDir, quit: () => quit({ confirm: false }), onChange: () => running?.app.emit('change') });
   try {
     running = await launch({
       onShutdownRequest: () => void quit({ confirm: false }),
-      // The standard Explorer "select folder" dialog, attached to our window.
+      // The system's own "select folder" dialog, attached to our window.
       pickFolder: async () => {
         const r = await dialog.showOpenDialog(win, { title: 'プロジェクトのフォルダを選択', buttonLabel: 'このフォルダを使う', properties: ['openDirectory'] });
         return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
@@ -91,7 +81,7 @@ async function start() {
   } catch (e) {
     // The port is held by an Orrery that did not exit properly (we hold the single-instance lock, so it is not a working
     // one): end it and try once more, instead of asking the human to find and kill it.
-    if (e instanceof PortInUseError && !retriedPort && endStaleOrrery(e.port)) {
+    if (e instanceof PortInUseError && !retriedPort && platform.endStaleListener(e.port, process.pid)) {
       retriedPort = true;
       await new Promise((r) => setTimeout(r, 1500));
       return start();
@@ -107,7 +97,7 @@ async function start() {
   // only: the microphone, for voice input (permissions.mjs).
   // Notifications are sent by this process instead (they must work while the window is hidden).
   const origin = new URL(running.url).origin;
-  allowMicrophoneOnly(session.defaultSession, origin);
+  allowMicrophoneOnly(session.defaultSession, origin, () => platform.microphoneAllowed(systemPreferences));
 
   win = new BrowserWindow({
     width: 1280,
@@ -131,8 +121,8 @@ async function start() {
     if (/^(https?:\/\/|mailto:)/i.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
-  // Started by Windows at sign-in: stay in the notification area until there is something to decide.
-  const startHidden = process.argv.includes('--hidden');
+  // Started by the system at sign-in: stay in the notification area until there is something to decide.
+  const startHidden = platform.startedHidden(app, process.argv);
   win.once('ready-to-show', () => startHidden || win.show());
   win.on('focus', () => win.flashFrame(false));
   win.on('close', (e) => {
@@ -150,7 +140,7 @@ async function start() {
   win.webContents.on('did-finish-load', matchPageBackground);
   win.on('focus', matchPageBackground); // after the theme was switched in settings
   nativeTheme.on('updated', matchPageBackground);
-  // The page reports its theme (preload.cjs) at load and on every switch. Windows draws the title bar from
+  // The page reports its theme (preload.cjs) at load and on every switch. The system draws the title bar from
   // nativeTheme, so following the page keeps the bar white in light and dark in dark, even against the system setting.
   ipcMain.on('orrery:theme', (e, t) => {
     if (e.sender !== win.webContents) return;
@@ -160,7 +150,7 @@ async function start() {
   });
   await win.loadURL(running.url);
 
-  tray = new Tray(nativeImage.createFromPath(join(here, 'tray.png')));
+  tray = new Tray(nativeImage.createFromPath(platform.trayIcon(here, false)));
   tray.on('click', () => showWindow());
   let timer = null;
   running.app.on('change', () => {
@@ -181,6 +171,7 @@ async function start() {
   }
 }
 
+const loginItem = platform.loginItem(app);
 const notified = new Set();
 let firstRefresh = true;
 let lastAttention = 0;
@@ -190,13 +181,13 @@ function refresh() {
   if (!running || !tray || quitting) return;
   const snap = running.app.snapshot();
   const c = snap.counts;
-  tray.setImage(nativeImage.createFromPath(join(here, c.needsAttention ? 'tray-alert.png' : 'tray.png')));
+  tray.setImage(nativeImage.createFromPath(platform.trayIcon(here, c.needsAttention > 0)));
   tray.setToolTip(`Orrery\n判断待ち ${c.needsAttention}件 / 実行中 ${c.running}件${c.queued ? ` / 順番待ち ${c.queued}件` : ''}${c.candidates ? `\n完了にできる作業 ${c.candidates}件` : ''}`);
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: c.needsAttention ? `判断待ち ${c.needsAttention}件を開く` : 'Orrery を開く', click: () => showWindow('#/') },
       { type: 'separator' },
-      { label: 'Windowsの起動時に開始', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] }) },
+      { label: platform.words.loginItem, type: 'checkbox', checked: loginItem.enabled(), click: (item) => loginItem.set(item.checked) },
       { type: 'separator' },
       { label: '終了（エージェントも停止）', click: () => void quit({ confirm: true }) },
     ]),
@@ -213,7 +204,7 @@ function refresh() {
     n.show();
     console.log(`[control-room] notification shown: ${kind}`);
   }
-  if (c.needsAttention > lastAttention && !focused) win?.flashFrame(true);
+  platform.showAttention({ app, win, count: c.needsAttention, rose: c.needsAttention > lastAttention, focused: !!focused });
   lastAttention = c.needsAttention;
   firstRefresh = false;
 }
@@ -247,7 +238,7 @@ app.on('window-all-closed', () => {}); // stay in the tray
 app.on('before-quit', (e) => {
   if (quitting) return;
   e.preventDefault();
-  void quit({ confirm: false });
+  void quit({ confirm: platform.quitAsks });
 });
 
 /** "rgb(18, 20, 29)" -> "#12141d" (what BrowserWindow.setBackgroundColor takes). */

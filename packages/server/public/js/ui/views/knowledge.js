@@ -1,6 +1,7 @@
 // こだわり: one editable prompt per section. Attachment limits and merging belong to the logic/core layers.
 import { addKnowledgeEntry, copyText, markKnowledgeSeen, removeKnowledgeDomain, removeKnowledgeEntry, setKnowledgeDomain, setKnowledgeSettings, updateKnowledgeEntry } from '../../logic/actions.js';
 import { domainClipboard, knowledgeModel, knowledgeUsage, tone } from '../../logic/knowledge.js';
+import { SEND_KEYS } from '../../logic/platform.js';
 import { store } from '../../logic/store.js';
 import { $, el, sync } from '../dom.js';
 import { icon } from '../icons.js';
@@ -44,7 +45,7 @@ function promptEditor(domain, entry, fresh) {
   const ta = el('textarea', { rows: '4', class: 'kn-text', 'aria-label': `${domain.name}のプロンプト`, placeholder: 'このセクションのこだわり', value: original });
   const count = el('span', {});
   const note = el('small', { class: 'note kn-limit-note', hidden: true });
-  const save = el('button', { type: 'button', class: 'primary ib kn-save', title: '保存 (Ctrl+Enter)', 'aria-label': `${domain.name}を保存`, hidden: true }, icon('check', 's'));
+  const save = el('button', { type: 'button', class: 'primary ib kn-save', title: `保存 (${SEND_KEYS})`, 'aria-label': `${domain.name}を保存`, hidden: true }, icon('check', 's'));
   const dirty = () => ta.value.trim() !== original && !!ta.value.trim();
   const paint = () => {
     paintCount(count, ta.value.length, L.sectionText, '字', 'セクションの添付上限');

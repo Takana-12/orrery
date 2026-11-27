@@ -1,5 +1,6 @@
 // Stopping or updating the whole app: warn first, then call the logic layer.
 import { shutdownApp, startAppUpdate } from '../logic/actions.js';
+import { TRAY } from '../logic/platform.js';
 import { busyCount, newVersionText } from '../logic/selectors.js';
 import { store } from '../logic/store.js';
 import { confirmDanger } from './confirm-dialog.js';
@@ -11,7 +12,7 @@ export async function askShutdown() {
     heading: 'Orreryを完全に停止しますか？',
     lines: [
       busy ? `実行中・判断待ち・順番待ちの作業が${busy}件あります。` : null,
-      'アプリ・裏で動いているサーバー・すべてのエージェントのプロセスを終了します。通知領域にも残りません。',
+      `アプリ・裏で動いているサーバー・すべてのエージェントのプロセスを終了します。${TRAY}にも残りません。`,
       '会話は残ります。次に起動したとき、止めた作業は「中断」として表示され、続きを指示できます。',
     ],
     action: '停止する',

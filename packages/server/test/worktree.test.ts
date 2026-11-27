@@ -36,6 +36,7 @@ test('changes are kept on the branch, the project node_modules survives removal,
   assert.equal(git(root, 'branch', '--show-current'), 'main', 'the project checkout is untouched');
   assert.ok(lstatSync(join(info.path, 'node_modules')).isSymbolicLink(), 'node_modules is linked in');
   assert.equal(git(info.path, 'status', '--porcelain'), '', 'the link does not show as a change');
+  assert.equal(git(root, 'status', '--porcelain'), '', 'and hiding it changed nothing in the project checkout');
 
   writeFileSync(join(info.path, 'a.txt'), 'changed');
   writeFileSync(join(info.path, 'new.txt'), 'new');

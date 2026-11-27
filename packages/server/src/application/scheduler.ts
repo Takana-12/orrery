@@ -1,6 +1,6 @@
 // Scheduler: how many agents work at once. Work beyond the limit (or while memory is short) waits in a queue and
 // starts by itself when there is room.
-import { freemem } from 'node:os';
+import { freeMemoryBytes } from '#host';
 import { message } from './runtime.ts';
 import type { Runtime } from './runtime.ts';
 
@@ -26,7 +26,7 @@ export class Scheduler {
   }
 
   freeMemoryMB(): number {
-    return Math.round(freemem() / 1048576);
+    return Math.round(freeMemoryBytes() / 1048576);
   }
 
   private activeCount(): number {
@@ -40,7 +40,7 @@ export class Scheduler {
     if (!this.queue.length) return null;
     const { maxConcurrent, minFreeMemoryMB } = this.rt.core.state.settings;
     if (this.activeCount() >= maxConcurrent) return 'slots';
-    if (minFreeMemoryMB > 0 && freemem() / 1048576 < minFreeMemoryMB) return 'memory';
+    if (minFreeMemoryMB > 0 && freeMemoryBytes() / 1048576 < minFreeMemoryMB) return 'memory';
     return null;
   }
 

@@ -1,6 +1,7 @@
 // New work: the box at the foot of the home screen. What to ask, and under it a bar of chips (where, who, which model,
 // how much say you keep).
 import { pickFolder, registerFolder, startWork } from '../../logic/actions.js';
+import { isSendChord, SEND_KEYS } from '../../logic/platform.js';
 import { defaultChoice, ensureModels, stillValid, usableAgents, usableChoice } from '../../logic/ai.js';
 import { store } from '../../logic/store.js';
 import { beginVoice } from '../../logic/voice.js';
@@ -25,7 +26,7 @@ export function newWorkForm() {
   store.newDraft.error = '';
   const sentNote = el('div', { class: 'sent-note' });
   const authSlot = el('div', {});
-  const start = el('button', { class: 'primary ib', type: 'submit', title: '始める (Ctrl+Enter)', 'aria-label': '始める' }, icon('send'));
+  const start = el('button', { class: 'primary ib', type: 'submit', title: `始める (${SEND_KEYS})`, 'aria-label': '始める' }, icon('send'));
 
   // Where: any number of workspaces, ticked in the chip's menu — ticking another adds it, ticking one again takes it
   // off. The first ticked is the main one: the agent starts in its folder and its settings (approvals, worktree, the
@@ -227,7 +228,7 @@ export function newWorkForm() {
   card.append(prompt,
     el('div', { class: 'bar one-line' }, att.button, speak, project.node, envLink, ai.node, approval.node, policy.node, plan, wt, el('span', { class: 'grow' }), start));
   const form = el('form', { class: 'new' }, authSlot, err, sentNote, el('div', { class: 'above-box' }, att.tray), el('div', { class: 'dock' }, card));
-  prompt.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); form.requestSubmit(); } });
+  prompt.addEventListener('keydown', (e) => { if (isSendChord(e)) { e.preventDefault(); form.requestSubmit(); } });
   // Sending shows at once: the box empties, the work appears in the rail as "送信中", and this screen stays ready for
   // the next request. If it cannot be sent, the text comes back into the box.
   form.addEventListener('submit', async (e) => {

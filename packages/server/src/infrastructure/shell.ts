@@ -1,6 +1,6 @@
-// Running things on this machine: a shell command in a folder, git's view of a folder, the native folder chooser.
+// Running things on this machine: a shell command in a folder, git's view of a folder, GitHub's view of a branch.
 import { execFile, spawn } from 'node:child_process';
-import { WinJob } from '#host-windows';
+import { createJob, ownedSpawn } from '#host';
 
 const TIMEOUT_MS = 10 * 60_000;
 const OUTPUT_TAIL = 4000;
@@ -19,8 +19,8 @@ export function runCommand(command: string, cwd: string, extraEnv: Record<string
     const add = (d: Buffer) => {
       out = (out + d.toString('utf8')).slice(-OUTPUT_TAIL * 2);
     };
-    const child = spawn(command, { cwd, env: { ...process.env, ...extraEnv }, shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    const job = new WinJob();
+    const child = spawn(command, { cwd, env: { ...process.env, ...extraEnv }, shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], ...ownedSpawn });
+    const job = createJob();
     try {
       if (child.pid) job.assign(child.pid);
     } catch {}
@@ -77,20 +77,6 @@ export function pullRequestOf(cwd: string, branch: string | null): Promise<PullR
       } catch {
         done(null);
       }
-    });
-  });
-}
-
-/** The standard Windows folder chooser. Resolves null if cancelled, rejects if it could not be shown. */
-export function pickFolderDialog(): Promise<string | null> {
-  const script =
-    "Add-Type -AssemblyName System.Windows.Forms; $o = New-Object System.Windows.Forms.Form -Property @{TopMost=$true; ShowInTaskbar=$false; Opacity=0}; $o.Show(); $o.Activate(); " +
-    "$d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'プロジェクトのフォルダを選択'; $d.ShowNewFolderButton = $false; " +
-    "if ($d.ShowDialog($o) -eq 'OK') { [Console]::OutputEncoding = [Text.Encoding]::UTF8; Write-Output $d.SelectedPath }; $o.Close()";
-  return new Promise((resolvePick, reject) => {
-    execFile('powershell.exe', ['-NoProfile', '-STA', '-Command', script], { encoding: 'utf8', timeout: 300_000, windowsHide: true }, (err, stdout) => {
-      if (err) return reject(err);
-      resolvePick(stdout.trim() || null);
     });
   });
 }

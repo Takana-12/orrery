@@ -2,6 +2,7 @@
 // A window can be dragged by its title bar to anywhere on the screen; a double click on the title bar puts it back in the dock.
 // Each has its conversation, a box to write in, attachments and the AI chip — and nothing about a workspace.
 import { chatBusy, chatOf, closeChat, confirmChatSent, interruptChat, loadChatTranscript, sendChat, setChatChoice, setChatMinimized, syncChatWindows } from '../logic/chats.js';
+import { SEND_KEYS } from '../logic/platform.js';
 import { store } from '../logic/store.js';
 import { toolSummary } from '../logic/text.js';
 import { aiPicker } from './ai-picker.js';
@@ -58,7 +59,7 @@ function chatWindow(w) {
   const errLine = el('div', { class: 'err', role: 'alert' });
   const body = el('div', { class: 'sc-body' }, empty, log, outbox, typing, errLine);
 
-  const text = el('textarea', { rows: '1', 'aria-label': 'メッセージ', placeholder: 'メッセージ（Ctrl+Enterで送信・Enterで改行）' });
+  const text = el('textarea', { rows: '1', 'aria-label': 'メッセージ', placeholder: `メッセージ（${SEND_KEYS}で送信・Enterで改行）` });
   text.value = w.draft ?? '';
   text.addEventListener('input', () => { w.draft = text.value; });
   const sendBtn = el('button', { type: 'button', class: 'primary ib' });
@@ -193,7 +194,7 @@ function chatWindow(w) {
       minBtn.title = w.minimized ? '開く' : 'たたむ';
       minBtn.setAttribute('aria-label', minBtn.title);
       put(sendBtn, icon(busy ? 'stop' : 'send'));
-      sendBtn.title = busy ? '返答を止める' : '送る (Ctrl+Enter)';
+      sendBtn.title = busy ? '返答を止める' : `送る (${SEND_KEYS})`;
       sendBtn.setAttribute('aria-label', sendBtn.title);
       sendBtn.disabled = !!w.stopping;
       typing.hidden = !busy;

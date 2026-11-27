@@ -48,13 +48,13 @@ body:
   - type: input
     id: env
     attributes:
-      label: Windows と Node.js のバージョン
-      placeholder: Windows 11 24H2 / Node 24.1.0
+      label: OS と Node.js のバージョン
+      placeholder: Windows 11 24H2 / Node 24.1.0、または macOS 15.1（Apple シリコン）/ Node 24.1.0
   - type: textarea
     id: log
     attributes:
       label: ログ
       description: |
-        %LOCALAPPDATA%\AgentControlRoom\control-room.log の該当部分。
+        control-room.log の該当部分（Windows：%LOCALAPPDATA%\AgentControlRoom、macOS：~/Library/Application Support/AgentControlRoom）。
         **会話の内容・パス・環境変数の値など、見せたくないものは消してから貼ってください。**
       render: text

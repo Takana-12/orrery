@@ -1,5 +1,6 @@
 // Minimal JSONL JSON-RPC peer over a child process's stdio (bidirectional: the server also sends us requests).
 import { spawn } from 'node:child_process';
+import { ownedSpawn } from '#host';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
@@ -22,7 +23,7 @@ export class JsonRpcStdio {
   private closed = false;
 
   constructor(command: string, args: string[], opts: { env?: NodeJS.ProcessEnv } = {}) {
-    this.child = spawn(command, args, { env: opts.env ?? process.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    this.child = spawn(command, args, { env: opts.env ?? process.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...ownedSpawn });
     this.exited = new Promise((resolve) => {
       this.child.on('exit', (code) => {
         this.closed = true;

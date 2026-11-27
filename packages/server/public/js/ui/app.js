@@ -121,7 +121,7 @@ function onKey(e) {
   }
   const cards = [...document.querySelectorAll('[data-item]')];
   const current = a?.closest?.('[data-item]');
-  if (e.key === 'Enter' && e.ctrlKey && current) return void current.querySelector('[data-submit]')?.click();
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && current) return void current.querySelector('[data-submit]')?.click();
   if (e.key === 'Enter' && !typing && current === a && current?.dataset.collapsed) { e.preventDefault(); return void current.querySelector('.tg')?.click(); }
   if (typing || e.ctrlKey || e.altKey || e.metaKey) return;
   // n opens the home screen from anywhere with the cursor already in the new-work box (as a short Space press does,

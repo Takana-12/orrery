@@ -2,6 +2,7 @@
 import { act, confirmSent, loadTranscript, markSeen, sendMessage } from '../../logic/actions.js';
 import { composerChoice } from '../../logic/ai.js';
 import { ago, agoWord, clock, mb } from '../../logic/format.js';
+import { isSendChord, SEND_KEYS } from '../../logic/platform.js';
 import { sessionModel, workspacesOf } from '../../logic/selectors.js';
 import { store } from '../../logic/store.js';
 import { toolSummary } from '../../logic/text.js';
@@ -155,7 +156,7 @@ export function sessionView(id) {
   };
   send.addEventListener('click', submit);
   text.addEventListener('input', () => store.composerDrafts.set(id, text.value));
-  text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) submit(); });
+  text.addEventListener('keydown', (e) => { if (isSendChord(e)) submit(); });
 
   if (ui.focusComposer) { ui.focusComposer = false; text.focus(); }
   let headSig = '';
@@ -228,7 +229,7 @@ export function sessionView(id) {
         } else put(verdict, verdictNodes(s));
         const sendWord = holds ? '終わったら送る' : s.live ? '送る' : '再開して送る';
         put(send, icon(holds ? 'clock' : s.live ? 'send' : 'restore'));
-        send.title = `${sendWord} (Ctrl+Enter)`;
+        send.title = `${sendWord} (${SEND_KEYS})`;
         send.setAttribute('aria-label', sendWord);
         text.placeholder = holds ? '次に頼むことを書いておけます（いまの作業が終わったら自動で送ります）' : s.lifecycle === 'interrupted' ? '続きの指示を書く' : '追加の指示を書く';
         put(held, s.deferredMessage && el('div', { class: 'held-box' }, icon('send', 's'), el('div', { class: 'text' }, s.deferredMessage), el('button', { class: 'quiet', onclick: () => act(id, 'unsend') }, icon('x', 's'), '取り消す')));

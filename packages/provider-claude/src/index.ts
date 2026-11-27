@@ -11,6 +11,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { EffortLevel, Query, SDKUserMessage, PermissionMode, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { formFromElicitation } from '#core';
+import { executableName, npmTag, ownedSpawn } from '#host';
 import { tmpdir } from 'node:os';
 import { PreferenceReader } from '../../provider-shared/src/preferences.ts';
 import { VoicePlanner } from '../../provider-shared/src/voice-plan.ts';
@@ -95,7 +96,7 @@ export { cleanChildEnv };
 function claudeBinary(): string {
   try {
     const require = createRequire(import.meta.url);
-    return join(dirname(require.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`)), 'claude.exe');
+    return join(dirname(require.resolve(`@anthropic-ai/claude-agent-sdk-${npmTag}/package.json`)), executableName('claude'));
   } catch {
     return 'claude';
   }
@@ -172,7 +173,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       tools: [],
       canUseTool: async () => ({ behavior: 'deny', message: 'no tools' }) as PermissionResult,
       spawnClaudeCodeProcess: (o: any) => {
-        const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true, signal: o.signal });
+        const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true, signal: o.signal, ...ownedSpawn });
         if (child.pid) this.sink.processSpawned({ provider: 'claude', sessionId: null }, child.pid);
         return child;
       },
@@ -801,7 +802,7 @@ export class ClaudeAdapter implements ProviderAdapter {
         env: { ...cleanChildEnv(process.env, { keepApiKey: this.opts.auth === 'api_key' }), ...(req.env ?? {}) },
         // We spawn the official binary ourselves so the host owns its pid from birth (Job Object).
         spawnClaudeCodeProcess: (o) => {
-          const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true, signal: o.signal });
+          const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true, signal: o.signal, ...ownedSpawn });
           if (child.pid) sink.processSpawned({ provider: 'claude', sessionId }, child.pid);
           sink.sessionUpdate(sessionId, { process: 'alive', error: null });
           child.once('exit', (code) => {

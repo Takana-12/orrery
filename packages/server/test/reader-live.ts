@@ -10,7 +10,7 @@ interface Case {
   name: string;
   reply: string;
   background?: string[];
-  expect: { continues: boolean; steps: boolean; after?: boolean; question?: boolean; questions?: number };
+  expect: { continues: boolean; steps: boolean; after?: boolean; question?: boolean; questions?: number; yesNo?: boolean };
 }
 const cases: Case[] = [
   { name: '完了報告だけ', reply: 'ログイン画面の入力チェックを直しました。`npm test` も全件通っています。', expect: { continues: false, steps: false } },
@@ -22,6 +22,9 @@ const cases: Case[] = [
   { name: '開発サーバーを残しただけ', reply: '開発サーバーを起動しました。http://localhost:3000 で画面を確認できます。変更は以上です。', background: ['npm run dev'], expect: { continues: false, steps: false } },
   { name: '質問で終わる', reply: '実装方法が2つあります。A: 既存のテーブルに列を足す。B: 新しいテーブルを作る。どちらにしますか？', expect: { continues: false, steps: false, question: true } },
   { name: '別々の2つの判断', reply: '見比べの結果が出ました。次の対応を決めてください。\n- EXP-2を採用する\n- EXP-2を破棄する（元の指示文より良くならなかったため）\n- EXP-3を実施する（改訂版で次の実験。約25ドルの見込み）\n\nそれとは別に、課題 git-author-email-private について:\n- GitHubの作者アドレスを非公開用に切り替える\n- 私用アドレスの設定に戻す\nどちらにしますか？', expect: { continues: false, steps: false, question: true, questions: 2 } },
+  { name: 'はい／いいえで答える確認', reply: 'スキーマの変更方針をまとめました。\n1. users テーブルに email_verified 列を足す\n2. 既存の行は false で埋める\n\nこの方針で進めてよいですか？', expect: { continues: false, steps: false, question: true, yesNo: true } },
+  { name: 'はい／いいえで答える確認（英語）', reply: 'I found the cause: the cache key ignores the locale. Fixing it means clearing all cached pages once. Should I go ahead?', expect: { continues: false, steps: false, question: true, yesNo: true } },
+  { name: '内容を答える質問', reply: '新しいコマンドを足します。コマンド名は何にしますか？', expect: { continues: false, steps: false, question: true, yesNo: false } },
   { name: '任意の提案', reply: '対応しました。必要であれば、ドキュメントの更新もできます。', expect: { continues: false, steps: false } },
 ];
 
@@ -33,8 +36,8 @@ for (const c of cases) {
     bad++;
     continue;
   }
-  const got = { continues: r.agentContinues, steps: r.steps.length > 0, after: r.steps.some((s) => !!s.after), question: r.questions.length > 0, questions: r.questions.length };
-  const ok = got.continues === c.expect.continues && got.steps === c.expect.steps && (c.expect.after === undefined || got.after === c.expect.after) && (c.expect.question === undefined || got.question === c.expect.question) && (c.expect.questions === undefined || got.questions === c.expect.questions);
+  const got = { continues: r.agentContinues, steps: r.steps.length > 0, after: r.steps.some((s) => !!s.after), question: r.questions.length > 0, questions: r.questions.length, yesNo: r.questions[0]?.options.map((o) => o.label).join('/') === 'はい/いいえ' };
+  const ok = got.continues === c.expect.continues && got.steps === c.expect.steps && (c.expect.after === undefined || got.after === c.expect.after) && (c.expect.question === undefined || got.question === c.expect.question) && (c.expect.questions === undefined || got.questions === c.expect.questions) && (c.expect.yesNo === undefined || got.yesNo === c.expect.yesNo);
   if (!ok) bad++;
   console.log(`${ok ? 'OK  ' : 'NG  '}  ${c.name}\n        ${JSON.stringify(r)}`);
 }

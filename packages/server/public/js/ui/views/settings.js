@@ -15,6 +15,7 @@ import { editMessage } from '../message-dialog.js';
 import { go, route } from '../shell.js';
 import { SETTINGS_SECTIONS, sectionAnchor } from '../settings-sections.js';
 import { setTheme, theme, THEMES } from '../theme.js';
+import { canSeeThrough, CLEAR_STEP, MAX_CLEAR, setWindowClear, windowClear } from '../window-opacity.js';
 import { APPROVAL_OPTS, PROVIDER, SHORTCUTS } from '../vocabulary.js';
 
 /** A setting: name (and an optional one-line note) at the left, the control at the right. */
@@ -106,6 +107,16 @@ export function settingsView() {
 
   // ---- 外観 ----
   const themeSeg = segmented('テーマ', THEMES, theme(), setTheme);
+  // The window's see-through: only in the desktop app. Applied while the slider moves, so the effect is seen at once.
+  const clearAt = windowClear();
+  const clearOut = el('span', { class: 'unit clear-val' }, `${clearAt}%`);
+  const clearRange = el('input', { type: 'range', class: 'clear-range', min: '0', max: String(MAX_CLEAR), step: String(CLEAR_STEP), value: String(clearAt), 'aria-label': 'ウィンドウの透過度', 'aria-valuetext': `${clearAt}%` });
+  clearRange.addEventListener('input', () => {
+    const v = Number(clearRange.value);
+    clearOut.textContent = `${v}%`;
+    clearRange.setAttribute('aria-valuetext', `${v}%`);
+    setWindowClear(v);
+  });
 
   // ---- 使うAI ----
   // Which subscriptions the human has: only those are offered when choosing an AI, and only their plan usage is shown
@@ -321,7 +332,8 @@ export function settingsView() {
   $('main').replaceChildren(el('div', { class: 'pad settings' },
     el('h1', {}, icon('gear', 'l'), '設定', el('button', { class: 'quiet narrow-only', onclick: () => go('#/') }, icon('back', 's'), '戻る')),
     group('look',
-      row('テーマ', null, themeSeg)),
+      row('テーマ', null, themeSeg),
+      canSeeThrough() && row('ウィンドウの透過度', el('small', {}, '0%で透けません。上げるほど、後ろの画面が透けて見えます'), clearRange, clearOut)),
     group('agents',
       ...agentSwitches.map(({ p, t }) => row(el('span', { class: 'agent-name' }, icon(p, 's'), PROVIDER[p]), null, t))),
     group('work',

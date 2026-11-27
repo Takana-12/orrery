@@ -377,6 +377,7 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
         questions: e.questions,
         allowDecline: e.allowDecline ?? false,
         passive: e.passive ?? false,
+        context: e.context ?? null,
         approval: e.approval,
         rawPayloadRef: e.rawPayloadRef,
         response: null,

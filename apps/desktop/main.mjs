@@ -148,6 +148,11 @@ async function start() {
     if (nativeTheme.themeSource !== source) nativeTheme.themeSource = source;
     matchPageBackground();
   });
+  // The see-through chosen in settings (preload.cjs). Never below 0.4: the window must stay readable and findable.
+  ipcMain.on('orrery:opacity', (e, v) => {
+    if (e.sender !== win.webContents || typeof v !== 'number' || !Number.isFinite(v)) return;
+    win.setOpacity(Math.min(1, Math.max(0.4, v)));
+  });
   await win.loadURL(running.url);
 
   tray = new Tray(nativeImage.createFromPath(platform.trayIcon(here, false)));

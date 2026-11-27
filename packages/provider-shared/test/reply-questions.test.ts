@@ -52,3 +52,23 @@ test('several-at-once is kept only when there is more than one option to take', 
   ] });
   assert.deepEqual(got.map((q) => q.multiSelect), [true, false]);
 });
+
+test('a closed question with no options of its own is answered with yes or no', () => {
+  const yn = ['はい', 'いいえ'];
+  const labels = (q: { text: string; yesNo?: boolean; options?: unknown[] }) => readReplyQuestions({ questions: [{ options: [], ...q }] })[0]!.options.map((o) => o.label);
+  // the model says so
+  assert.deepEqual(labels({ text: 'この内容で反映しますか', yesNo: true }), yn);
+  // the model did not say: the question's own ending asks for permission or confirmation
+  for (const text of ['この方針で進めてよいですか？', 'このまま進めても大丈夫でしょうか', 'PRをマージしますか？', '古いブランチを消しても構いませんか', 'これで問題ないですか', 'Should I open a PR?']) {
+    assert.deepEqual(labels({ text }), yn, text);
+  }
+  // asking which, what or how, or this-or-that, is not a yes or no
+  for (const text of ['AとBどちらにしますか？', '名前は何にしますか', 'どう進めましょうか', 'AにしますかそれともBにしますか', 'Which branch should I use?', 'Should I use A or B?', '気になる点を教えてください']) {
+    assert.deepEqual(labels({ text }), [], text);
+  }
+  // the model's own "no" wins over the ending, and options of its own are never replaced
+  assert.deepEqual(labels({ text: '進めてよいですか', yesNo: false }), []);
+  assert.deepEqual(labels({ text: '進めてよいですか', yesNo: true, options: [{ label: 'すぐ進める' }, { label: '明日にする' }] }), ['すぐ進める', '明日にする']);
+  const [q] = readReplyQuestions({ questions: [{ text: '進めてよいですか', multiSelect: true, options: [] }] });
+  assert.equal(q!.multiSelect, false, 'yes and no exclude each other');
+});

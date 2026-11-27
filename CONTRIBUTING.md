@@ -19,6 +19,16 @@ Orrery は個人で作っているプロジェクトです。バグ報告・要�
 
 プルリクエストを出すと、GitHub Actions が **Windows と macOS の両方**でテストと、ビルドしたアプリの起動確認を行います（はじめての方の分は、管理者が承認してから動きます）。片方の OS しか持っていなくても構いません。
 
+### プルリクエストが作れないとき
+
+このリポジトリは、Fork からのプルリクエストを誰でも出せる設定にしています。それでも作れないときは、次を確かめてください。
+
+- **`gh pr create` やエージェントから出していて `Resource not accessible by personal access token` などと出る：** Fine-grained の個人アクセストークンは、自分のリポジトリ（Fork）にしか権限がないため、このリポジトリにプルリクエストを作れません。`gh auth login` でブラウザからログインし直すか、ブラウザから出してください。
+- **ブラウザから出す：** `https://github.com/Takana-12/orrery/compare/main...<自分の GitHub 名>:orrery:<ブランチ名>?expand=1` を開くと、そのままプルリクエストの作成画面になります。
+- **「There isn't anything to compare」と出る：** 比べる先が `Takana-12/orrery` の `main`、比べる元が自分の Fork のブランチになっているか確かめてください。
+
+どうしても作れないときは、**Fork のブランチ名を Issue に書いてもらえれば、そこから取り込みます**（取り込みはもともと GitHub 上のマージではないため、プルリクエストがなくても同じように扱えます）。
+
 ### Windows と macOS の両方で動かすために
 
 OS に依存するコード（`process.platform` を見る、PowerShell や `osascript` を呼ぶ、など）を書けるのは `packages/host/` と `apps/desktop/platform/` の 2 か所だけです。ほかの場所に書くと `npm test` が落ちます。OS に頼ることが新しく必要なときは、その 2 か所に「Windows 用」と「macOS 用」の両方を足してください。手順は [docs/08-対応OSと移植層.md](docs/08-対応OSと移植層.md) の 4 章にあります。自分の OS の分しか書けないときは、そのことをプルリクエストに書いてください。

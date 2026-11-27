@@ -61,8 +61,10 @@ export function sessionView(id) {
   const jump = el('div', { class: 's-jump', hidden: true }, el('button', { class: 'ib', title: '新しい記録へ', 'aria-label': '新しい記録へ', onclick: () => { body.scrollTop = body.scrollHeight; } }, icon('down')));
   // Messages sent from here that the record does not show yet: on screen from the moment they are sent.
   const outbox = el('div', { class: 'inner outbox' });
-  const body = el('div', { class: 's-body' }, el('div', { class: 'inner' }, earlier), log, outbox, jump);
-  const pending = el('div', {});
+  // What the work is waiting for sits right under the record and scrolls with it, so a long question never leaves
+  // the record a sliver of the screen.
+  const pending = el('div', { class: 'inner pending' });
+  const body = el('div', { class: 's-body' }, el('div', { class: 'inner' }, earlier), log, outbox, pending, jump);
   const text = el('textarea', { rows: '2', 'aria-label': '追加の指示' });
   text.value = store.composerDrafts.get(id) ?? '';
   const send = el('button', { class: 'primary ib' }, icon('send'));
@@ -76,7 +78,8 @@ export function sessionView(id) {
   const speak = el('button', { type: 'button', class: 'quiet ib', title: '音声で返信（Space 長押し）', 'aria-label': '音声で返信', onclick: () => beginVoice('toggle', { replyTo: id }) }, icon('mic'));
   card.append(text, el('div', { class: 'bar' }, att.button, speak, effort.node, hint, sendErr, el('span', { class: 'grow' }), send));
   const stepsSlot = el('div', { class: 'steps-slot' }); // the switch between the steps and the record sits on the composer's top right
-  const foot = el('div', { class: 's-foot' }, el('div', { class: 'inner' }, pending, held, att.tray, stepsSlot, card));
+  const footInner = el('div', { class: 'inner' }, held, att.tray, stepsSlot, card);
+  const foot = el('div', { class: 's-foot' }, footInner);
   const screen = el('div', { class: 'session' });
   $('main').replaceChildren(screen);
   put(screen,
@@ -220,6 +223,9 @@ export function sessionView(id) {
         const steps = s.completion === 'human_steps' ? s.task?.humanSteps ?? [] : [];
         const stepsMode = steps.length > 0 && stepsShown.get(id) !== false;
         screen.classList.toggle('steps-mode', stepsMode);
+        // The record is hidden while the steps are shown: what the work waits for then stays above the composer.
+        if (stepsMode) { if (pending.parentNode !== footInner) footInner.prepend(pending); }
+        else if (pending.parentNode !== body) body.insertBefore(pending, jump);
         const toggle = (yes, label) => el('button', { class: 'quiet steps-toggle', onclick: () => showSteps(yes) }, icon(yes ? 'user' : 'terminal', 's'), label);
         put(stepsSlot, steps.length > 0 && (stepsMode ? toggle(false, 'これまでの経過を見る') : toggle(true, '作業を表示する')));
         if (stepsMode) put(verdict, stepsBox(s, { titled: false }));
@@ -236,7 +242,14 @@ export function sessionView(id) {
         put(hint, s.lifecycle === 'queued' ? '順番が来たら自動で始まります' : s.lifecycle === 'waiting_for_user' ? '上の依頼に答えると進みます' : waitsBg ? 'バックグラウンドの作業が終わると、エージェントが続きを始めます' : busy ? '作業が終わったら自動で届きます'
           : [el('kbd', { title: 'Tabで次の作業へ' }, 'Tab'), icon('down', 's')]);
       }
+      const known = new Set([...pending.children].map((n) => n.dataset.key));
+      const stick = atBottom();
       sync(pending, mine, (i) => i.id, ticketSig, (i) => ticket(i, { linkToSession: false }));
+      // A request that just arrived is brought into view if the record was followed to its end; otherwise the arrow shows it is there.
+      if (mine.some((i) => !known.has(String(i.id)))) {
+        if (stick) body.scrollTop = body.scrollHeight;
+        else jump.hidden = false;
+      }
       if (rev < 0) { rev = s.transcriptRev; load(true); }
       else if (s.transcriptRev !== rev) { rev = s.transcriptRev; load(false); }
     },

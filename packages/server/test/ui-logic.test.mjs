@@ -9,7 +9,7 @@ import { act, startWork, addProjectFromFolder, renameProject, runStep, sendAnswe
 import { fullStamp, leftTone, stamp } from '../public/js/logic/format.js';
 import { ARCHIVE_FOLD, advanceAccordion, archiveModel, busyCount, checkGroups, inInbox, inboxModel, inboxStepIndexes, isOpen, limitsModel, newVersionText, railModel, sessionModel, workStepsModel } from '../public/js/logic/selectors.js';
 import { parseRoute, routeKey } from '../public/js/logic/route.js';
-import { looksLikeCommand, toolSummary } from '../public/js/logic/text.js';
+import { leadInText, looksLikeCommand, toolSummary } from '../public/js/logic/text.js';
 import { inline, parseMarkdown, plainText } from '../public/js/logic/markdown.js';
 
 const NOW = Date.now();
@@ -814,4 +814,14 @@ test('only the subscriptions the human uses are offered and shown; turning one o
   server(500);
   await setSettings({ providers: ['claude'] });
   assert.deepEqual(usableAgents(), ['codex'], 'refused: back to what it was before this change');
+});
+
+test('a question lead-in drops a closing paragraph that only repeats the question, and is nothing when nothing else is left', () => {
+  const plan = '## 方針\n- **A**: 保存時だけ\n- **B**: 自動保存';
+  assert.equal(leadInText(`${plan}\n\nAとBのどちらにしますか？`, ['AとBのどちらにしますか']), plan);
+  assert.equal(leadInText(`${plan}\n\n**この方針で進めて良いですか?**`, ['この方針で進めて良いですか？']), plan);
+  // a closing paragraph that says more than the question stays
+  assert.equal(leadInText(`${plan}\n\nBは途中の値も保存されます。どちらにしますか？`, ['どちらにしますか']), `${plan}\n\nBは途中の値も保存されます。どちらにしますか？`);
+  assert.equal(leadInText('進めてよいですか？', ['進めてよいですか']), null);
+  assert.equal(leadInText(null, ['q']), null);
 });

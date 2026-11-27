@@ -109,6 +109,21 @@ test('redelivery of the same provider request does not create a second item', ()
   assert.equal(core.state.items.size, 1);
 });
 
+test('a question keeps what the agent wrote just before asking, across a restart; an empty one is not kept', () => {
+  const store = new MemoryEventStore();
+  const { core } = setup(store);
+  const projectId = core.addProject('p', 'C:\\work\\ctx');
+  const s = core.createSession({ projectId, provider: 'claude', title: 'task' });
+  core.sessionUpdate(s.id, { process: 'alive', lifecycle: 'running' });
+  const plan = '## 方針\n1. スキーマを変える\n2. 移行スクリプトを書く';
+  const withPlan = core.attentionOpen({ sessionId: s.id, requestId: 'a', type: 'user_question', summary: 'この方針で進めて良いですか', questions: [q], context: plan, reply: () => {} });
+  const blank = core.attentionOpen({ sessionId: s.id, requestId: 'b', type: 'user_question', summary: 'q', questions: [q], context: '  ', reply: () => {} });
+  assert.equal(core.state.items.get(withPlan)!.context, plan);
+  assert.equal(core.state.items.get(blank)!.context, null);
+  const again = new ControlCore({ store: new MemoryEventStore(store.readAll()) });
+  assert.equal(again.state.items.get(withPlan)!.context, plan);
+});
+
 test('answers are validated against the question and the allowed decisions', () => {
   const { core } = setup();
   const a = sessionWithQuestion(core);

@@ -8,8 +8,10 @@ import { mount } from './ui/app.js';
 import { mountRailResize } from './ui/rail-resize.js';
 import { banner } from './ui/shell.js';
 import { applyTheme } from './ui/theme.js';
+import { applyWindowClear } from './ui/window-opacity.js';
 
 applyTheme();
+applyWindowClear();
 
 const NO_ACCESS = 'このタブは操作できません。Orreryを起動したときに開いたウィンドウ、または起動時に表示されたURLから開いてください。';
 

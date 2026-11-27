@@ -30,3 +30,17 @@ export function toolSummary(text) {
   if (nl < 0) return { glyph: 'terminal', line: short(text, 160), more: text.length > 160 ? text : null };
   return { glyph: 'terminal', line: short(text.slice(0, nl), 160), more: text.slice(nl + 1).trim() ? text : null };
 }
+
+/**
+ * What the agent wrote before asking, minus a closing paragraph that is only the question itself (a question read from
+ * a reply is usually its last paragraph, and the ticket shows it right below). Null when nothing else is left.
+ */
+export function leadInText(context, questionTexts) {
+  if (!context) return null;
+  const norm = (t) => String(t ?? '').replace(/[*_`#>\s]/g, '').replace(/[?？。.!！:：]+$/u, '');
+  const asked = new Set(questionTexts.map(norm).filter(Boolean));
+  const paras = context.trim().split(/\n\s*\n/);
+  while (paras.length && asked.has(norm(paras[paras.length - 1]))) paras.pop();
+  const left = paras.join('\n\n').trim();
+  return left || null;
+}

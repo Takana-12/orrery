@@ -11,10 +11,11 @@ import { advanceAccordion, checkGroups, inboxModel, openPlainStep } from '../../
 import { store } from '../../logic/store.js';
 import { el, sync } from '../dom.js';
 import { effortPicker } from '../effort-picker.js';
-import { icon, orrery } from '../icons.js';
+import { icon } from '../icons.js';
 import { go, render } from '../shell.js';
 import { checksBox, checksSig, doneButton, evidenceLine, stepsBox, stepsSig, workspaceTag } from '../task-parts.js';
 import { ticket, ticketSig } from '../ticket.js';
+import { voiceOrb } from '../voice-orb.js';
 import { lampFor, nowLine, waitsForBackground, wordFor } from '../vocabulary.js';
 import { plainText } from '../../logic/markdown.js';
 import { fullStamp } from '../../logic/format.js';
@@ -103,6 +104,7 @@ const activeRow = (s) => workRow(s, {
 export function inboxList() {
   const list = el('div', {});
   const clear = el('div', {});
+  let orb = null; // the empty state's sphere: made once, reused each time the inbox empties
   const section = (ic, tone, word, extra) => {
     const n = el('span', { class: 'n' });
     return { head: el('h2', {}, icon(ic, tone), word, n, extra), n, body: el('div', {}) };
@@ -151,11 +153,12 @@ export function inboxList() {
       const clearSig = `${open.length}|${c.humanTasks}|${c.running}|${c.queued}|${c.unread}`;
       if (clear.dataset.sig !== clearSig) {
         clear.dataset.sig = clearSig;
-        clear.replaceChildren(...(open.length || c.humanTasks ? [] : [el('div', { class: 'clear' }, orrery(c.running || 3, c.running ? 'live' : ''),
+        clear.replaceChildren(...(open.length || c.humanTasks ? [] : [el('div', { class: 'clear' }, (orb ??= voiceOrb()).node,
           el('strong', {}, '判断待ちはありません'),
           (c.running > 0 || c.queued > 0) && el('div', { class: 'counts' },
             el('span', { title: '実行中' }, icon('running', 's blue spin'), String(c.running)),
             c.queued > 0 && el('span', { title: '順番待ち' }, icon('clock', 's'), String(c.queued))))]));
+        if (orb?.node.isConnected) orb.set(c.running > 0 ? 'busy' : 'idle');
       }
       // The human's own work: each project's things to look at as one checklist, then each work's other steps.
       const mine = [

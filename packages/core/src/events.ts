@@ -89,6 +89,8 @@ export type CoreEvent =
       allowDecline?: boolean;
       /** The provider is not blocked on this request (it was read from a finished reply): do not mark the session as waiting. */
       passive?: boolean;
+      /** What the agent wrote just before asking. */
+      context?: string | null;
     }
   | { type: 'session.seen'; sessionId: string }
   | { type: 'session.archived'; sessionId: string; archived: boolean }

@@ -196,6 +196,7 @@ export class Reader {
         allowDecline: true,
         passive: true,
         questions,
+        context: redact(text).slice(-6000),
         rawPayloadRef: store.saveRaw(read.id, { source: 'エージェントの最終返答から読み取った質問', reply: redact(text) }),
       });
     }

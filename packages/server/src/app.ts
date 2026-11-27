@@ -169,6 +169,9 @@ export class App extends EventEmitter {
         return this.core.attentionOpen({
           ...input,
           summary: redact(input.summary),
+          // A question often points back at what was just written ("is this approach OK?"): keep it with the question.
+          // The transcript is already redacted when written.
+          context: input.type === 'user_question' ? input.context ?? (this.store.turnReplies(input.sessionId, 6000) || null) : input.context,
           approval: input.approval ? { ...input.approval, subject: input.approval.subject === null ? null : redact(input.approval.subject) } : input.approval,
         });
       },

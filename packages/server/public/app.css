@@ -393,6 +393,8 @@ button.cmd { display: inline; padding: 0; border: 0; border-radius: 2px; font: 0
 /* ---------- agent replies rendered from Markdown ---------- */
 .msg .text.rich { white-space: normal; }
 .md { line-height: 1.65; }
+/* A question's lead-in: what the agent wrote just before asking, readable in place (long ones scroll). */
+.lead-in { max-height: min(44vh, 420px); overflow: auto; margin: 2px 0 12px; padding: 10px 14px; border-left: 3px solid var(--line); border-radius: var(--r); background: var(--raise); overscroll-behavior: contain; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 8px; }

@@ -36,6 +36,8 @@ export interface OpenAttention {
   passive?: boolean;
   approval?: ApprovalRequest | null;
   rawPayloadRef?: string | null;
+  /** What the agent wrote just before asking, shown above the question. */
+  context?: string | null;
   /**
    * Bound to the exact originating provider request. Never leaves the core. May throw if delivery fails.
    * Not needed for a passive request: its answer goes to CoreOptions.onPassiveAnswer instead.
@@ -540,6 +542,7 @@ export class ControlCore {
       rawPayloadRef: input.rawPayloadRef ?? null,
       ...(input.allowDecline ? { allowDecline: true } : {}),
       ...(input.passive ? { passive: true } : {}),
+      ...(input.context?.trim() ? { context: input.context } : {}),
     });
     return itemId;
   }

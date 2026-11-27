@@ -395,6 +395,11 @@ export interface AttentionItem {
    * as the next message. It therefore survives the agent's process and a restart of the control room.
    */
   passive: boolean;
+  /**
+   * What the agent wrote just before asking (the plan or explanation a question like "is this approach OK?" refers to),
+   * so the human can answer from the inbox without opening the work. Null when nothing was written.
+   */
+  context: string | null;
   approval: ApprovalRequest | null;
   /** Id of the stored raw provider payload, for the "show me the evidence" drill-down. */
   rawPayloadRef: string | null;

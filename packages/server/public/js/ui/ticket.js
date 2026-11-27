@@ -4,12 +4,13 @@ import { SEND_KEYS } from '../logic/platform.js';
 import { toggleTicket } from '../logic/selectors.js';
 import { store } from '../logic/store.js';
 import { el } from './dom.js';
+import { richText } from './task-parts.js';
 import { icon } from './icons.js';
 import { go, render } from './shell.js';
 import { DECISION, kindOf, ptag } from './vocabulary.js';
 
 // Request tickets (shared by the inbox and the session screen).
-function questionBody(item) {
+function questionBody(item, { leadIn = true } = {}) {
   const draft = store.drafts.get(item.id) ?? store.drafts.set(item.id, {}).get(item.id);
   const locked = item.status !== 'pending';
   let n = 0;
@@ -39,6 +40,9 @@ function questionBody(item) {
   // A summary that only repeats the questions below (a reply read as several questions) is not shown again.
   const repeatsQuestions = item.summary === item.questions.map((q) => q.text).join(' / ');
   return [
+    // What the agent wrote just before asking: "is this approach OK?" can be answered without opening the work.
+    // Not on the work's own screen, where the same text is right above.
+    leadIn && item.context && el('div', { class: 'lead-in', tabindex: '0', 'aria-label': 'エージェントの説明' }, richText(item.context, item.sessionId)),
     !repeatsQuestions && (item.questions.length > 1 || (item.allowDecline && item.summary !== item.questions[0]?.text)) && el('div', { class: 'note' }, item.summary),
     blocks,
     el('div', { class: 'acts' },
@@ -123,7 +127,7 @@ export function ticket(item, { linkToSession = true, collapsible = false } = {})
   }
   return el('section', { class: `ticket ${item.status}`, 'data-item': item.id, tabindex: '-1', 'aria-label': `${kind.word}: ${item.summary}` },
     head,
-    item.type === 'user_question' ? questionBody(item) : approvalBody(item),
+    item.type === 'user_question' ? questionBody(item, { leadIn: linkToSession }) : approvalBody(item),
     item.status === 'answering' && el('div', { class: 'note' }, '回答は送信済みです。エージェントが受け取ると自動で消えます。止まっているようなら、作業を開いて状態を確認してください。'),
     store.errors.has(item.id) && el('div', { class: 'err', role: 'alert' }, store.errors.get(item.id)),
     details);

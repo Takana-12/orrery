@@ -10,6 +10,7 @@ import type {
   Question,
   Resumability,
   SessionLifecycle,
+  TaskKind,
   Settings,
   TaskValidation,
   HumanStepInput,
@@ -29,7 +30,10 @@ export type CoreEvent =
   | { type: 'task.fix_requested'; taskId: string }
   | { type: 'task.accepted'; taskId: string; accepted: boolean }
   | { type: 'task.human_steps'; taskId: string; steps: HumanStepInput[] | null }
-  | { type: 'task.reply_read'; taskId: string; turn: number }
+  /** `turn` null: the reading is forgotten, so the same reply is read (applied) again. */
+  | { type: 'task.reply_read'; taskId: string; turn: number | null }
+  /** What the human wants back from the work; `pinned`: the human chose it, and it is no longer read from replies. */
+  | { type: 'task.kind'; taskId: string; kind: TaskKind; pinned: boolean }
   | { type: 'task.human_step_done'; taskId: string; index: number; done: boolean }
   /** A step's command started (`ok` null) or ended; while ended and not yet settled, its output is being read. */
   | { type: 'task.human_step_ran'; taskId: string; index: number; command: string; runId: string; ok?: boolean | null; exitCode?: number | null; outputTail?: string | null }
@@ -55,7 +59,7 @@ export type CoreEvent =
   | { type: 'knowledge.entry_reinforced'; entryId: string; quote?: string | null; sessionId: string | null }
   /** The human looked at the preferences recorded by themselves. */
   | { type: 'knowledge.seen' }
-  | { type: 'session.created'; sessionId: string; projectId: string; taskId: string; provider: ProviderId; cwd: string; extraProjectIds?: string[]; model?: string | null; effort?: string | null; approvalMode?: ApprovalMode }
+  | { type: 'session.created'; sessionId: string; projectId: string; taskId: string; provider: ProviderId; cwd: string; extraProjectIds?: string[]; scheduleId?: string; model?: string | null; effort?: string | null; approvalMode?: ApprovalMode }
   | {
       type: 'session.updated';
       sessionId: string;

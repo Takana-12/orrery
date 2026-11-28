@@ -10,15 +10,20 @@
 //   - "update the app and check that X is gone"           -> checks: things to see after one shared action. When the
 //                                                            reply leaves them vague ("the two words are gone"), the
 //                                                            agent itself is asked (cheapest model) what exactly to look at
+//   - "here is what I found" (the human asked to research) -> a report: the reply IS what the human wanted. Nothing is
+//                                                            turned into steps or questions, so nothing stands between
+//                                                            the human and the agent's own words (see TaskKind)
 // None of this arrives as structured data, so the reply is read by a small model (no tools) and the answer is turned
 // into core facts. Two moments are read:
 //   finished  the turn ended                -> questions and human steps
 //   parked    the reply ended but the agent's own background work is still live (the adapter holds the session as
 //             running). If the agent is NOT waiting for that work (a dev server it merely left running), the turn is
 //             released as finished; otherwise it stays running until the work reports back.
-import type { AgentSession, AttentionAnswer, AttentionItem, HumanStepInput } from '#core';
+import { TASK_KINDS } from '#core';
+import type { AgentSession, AttentionAnswer, AttentionItem, HumanStepInput, TaskKind } from '#core';
 import type { Assistant, ClarifySource, ReplyReading } from './assistant.ts';
 import type { Journal } from './journal.ts';
+import { HttpError } from './errors.ts';
 import { message } from './runtime.ts';
 import type { Runtime } from './runtime.ts';
 import type { Secrets } from './secrets.ts';
@@ -99,7 +104,7 @@ export class Reader {
   }
 
   private read(s: AgentSession, mode: Mode): void {
-    const key = `${s.id}:${mode}:${s.lifecycleSince}:${(s.lastText ?? '').length}`;
+    const key = `${s.id}:${mode}:${s.lifecycleSince}:${(s.lastText ?? '').length}:${this.pinnedKind(s) ?? 'auto'}`;
     if (this.seen.has(key)) return;
     this.seen.add(key);
     // Everything the agent wrote since the human last spoke: what is asked of the human is not always in the last message.
@@ -107,14 +112,15 @@ export class Reader {
     if (text.trim().length < 8) return this.apply(s, mode, text, NOTHING);
     const use = (r: ReplyReading) => {
       this.last.set(s.id, { text, reading: r });
-      // Things to look at that the reply left vague: ask the agent what exactly, before they reach the human.
-      if (mode === 'finished' && r.look?.unclear.length) return this.clarify(s, r, (sharp) => use(sharp));
+      // Things to look at that the reply left vague: ask the agent what exactly, before they reach the human. A report
+      // shows no checks, so nothing is asked for it.
+      if (mode === 'finished' && r.look?.unclear.length && this.kindOf(s, r) !== 'report') return this.clarify(s, r, (sharp) => use(sharp));
       this.apply(s, mode, text, r);
     };
     const known = this.last.get(s.id);
     if (known?.text === text) return use(known.reading);
     this.assistant.queue(
-      (m) => m.readFinalReply(text, { background: s.background ?? [] }),
+      (m) => m.readFinalReply(text, { background: s.background ?? [], request: this.rt.store.lastRequest?.(s.id) || null }),
       (r) => {
         if (this.rt.closing) return;
         if (r) return use(r);
@@ -168,6 +174,10 @@ export class Reader {
     }
     if (now.lifecycle !== 'turn_finished' || now.lifecycleSince !== read.lifecycleSince) return;
     core.replyRead(read.id, read.lifecycleSince);
+    // What the human wants back, as this reply tells it (unless the human said so themself).
+    if (typeof r.report === 'boolean') core.setTaskKind(read.id, r.report ? 'report' : 'work', false);
+    // A report is read as it was written: its words are not turned into a list of steps or questions.
+    if (this.kindOf(now, r) === 'report') return;
     const steps = stepsOf(r);
     if (steps.length) {
       core.setHumanSteps(read.id, steps.map((x) => ({
@@ -200,6 +210,44 @@ export class Reader {
         rawPayloadRef: store.saveRaw(read.id, { source: 'エージェントの最終返答から読み取った質問', reply: redact(text) }),
       });
     }
+  }
+
+  /** The kind the human chose for the work, if they did. */
+  private pinnedKind(s: AgentSession): TaskKind | null {
+    const t = this.rt.core.state.tasks.get(s.taskId);
+    return t?.kindPinned ? t.kind : null;
+  }
+
+  /** The kind that decides how a reading is used: the human's choice, else what the reading says, else what it was. */
+  private kindOf(s: AgentSession, r: ReplyReading): TaskKind {
+    const t = this.rt.core.state.tasks.get(s.taskId);
+    if (t?.kindPinned && t.kind) return t.kind;
+    if (typeof r.report === 'boolean') return r.report ? 'report' : 'work';
+    return t?.kind ?? 'work';
+  }
+
+  /**
+   * The human says what the work is. From then on replies are no longer classified for it. A reply already read is
+   * shown the new way at once: as a report, its steps and the questions read from it go; as work, the same reading is
+   * applied again (from memory when the words have not changed, so no model is asked).
+   */
+  setKind(sessionId: string, kind: unknown): void {
+    const { core } = this.rt;
+    const s = core.state.sessions.get(sessionId);
+    if (!s) throw new HttpError(404, '作業が見つかりません');
+    if (!TASK_KINDS.includes(kind as TaskKind)) throw new HttpError(400, '作業の種類が不正です');
+    const t = core.state.tasks.get(s.taskId)!;
+    const was = t.kind;
+    core.setTaskKind(sessionId, kind as TaskKind, true);
+    if (was === kind || s.lifecycle !== 'turn_finished' || t.readTurn !== s.lifecycleSince) return;
+    if (kind === 'report') {
+      if (t.humanSteps) core.setHumanSteps(sessionId, null);
+      core.attentionWithdrawn(sessionId, `final:${s.lifecycleSince}`, '調査の作業として、返答をそのまま読むことにしました');
+      return;
+    }
+    // onChange reads it again, as work (whatever was read for this turn before is no longer "seen").
+    for (const k of this.seen) if (k.startsWith(`${sessionId}:finished:`)) this.seen.delete(k);
+    core.forgetReading(sessionId);
   }
 
   /** The human answered a question that was read from a reply: the agent asked in prose, so the answer goes back as an ordinary message. */

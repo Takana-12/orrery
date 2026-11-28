@@ -74,6 +74,17 @@ export const actEffect = (sessionId, action, body = {}) => (state) => {
       if (s.task) s.task.validating = true;
       s.completion = 'validating';
       break;
+    case 'kind':
+      // The tag changes at once. Told it is a report, the steps and the questions read from its reply go with it (the
+      // reply is shown as written); told it is work, they come back as the server reads the reply again.
+      if (!s.task) break;
+      Object.assign(s.task, { kind: body.kind, kindPinned: true });
+      if (body.kind === 'report' && s.lifecycle === 'turn_finished') {
+        s.task.humanSteps = null;
+        if (s.completion === 'human_steps') s.completion = 'unverified';
+        for (const i of state.items) if (i.sessionId === s.id && i.passive && i.status === 'pending') i.status = 'expired';
+      }
+      break;
     case 'rename':
       s.taskTitle = String(body.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 80) || s.taskTitle;
       break;

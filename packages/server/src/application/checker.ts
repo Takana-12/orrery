@@ -51,7 +51,7 @@ export class Checker {
     const command = t.checkCommand;
     core.validationStarted(t.id);
     // The command comes from the human who created the task, and is run through the shell exactly as typed.
-    const result = await runCommand(command, s.cwd, this.secrets.envFor(s.projectId));
+    const result = await runCommand(command, s.cwd, this.secrets.envForWork(s));
     if (this.rt.closing) return;
     if (core.state.sessions.get(sessionId)?.lifecycle !== 'turn_finished') {
       // The agent was sent back to work while the check ran: this result is about a state that no longer exists.

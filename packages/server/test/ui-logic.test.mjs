@@ -10,7 +10,7 @@ import { fullStamp, leftTone, stamp } from '../public/js/logic/format.js';
 import { ARCHIVE_FOLD, advanceAccordion, archiveModel, busyCount, checkGroups, inInbox, inboxModel, inboxStepIndexes, isOpen, limitsModel, newVersionText, railModel, sessionModel, workStepsModel } from '../public/js/logic/selectors.js';
 import { parseRoute, routeKey } from '../public/js/logic/route.js';
 import { arcEntries, arcSpots, assignRings, orbitEntries } from '../public/js/logic/orbits.js';
-import { leadInText, looksLikeCommand, toolSummary } from '../public/js/logic/text.js';
+import { excerpt, leadInText, looksLikeCommand, toolSummary } from '../public/js/logic/text.js';
 import { inline, parseMarkdown, plainText } from '../public/js/logic/markdown.js';
 
 const NOW = Date.now();
@@ -282,6 +282,24 @@ test('agent replies are read as Markdown, never as HTML', () => {
   assert.deepEqual(inline('<b>x</b>'), [{ t: 'text', v: '<b>x</b>' }]);
   // Previews show the words without the marks.
   assert.equal(plainText('## 結果\n\n**テスト**は `npm test` で通過'), '結果\nテストは npm test で通過');
+});
+
+test('files and folders an agent names become something to open', () => {
+  const paths = (src) => inline(src).flatMap((n) => n.c ?? [n]).filter((n) => n.path).map((n) => [n.t, n.v, n.path.path, n.path.relative]);
+  // In prose: Japanese right before or after it, and sentence punctuation after it, are not part of it.
+  assert.deepEqual(paths('C:\\Users\\user\\user\\user.mdなどのように'), [['path', 'C:\\Users\\user\\user\\user.md', 'C:\\Users\\user\\user\\user.md', false]]);
+  assert.deepEqual(paths('保存先はC:\\work\\out\\。'), [['path', 'C:\\work\\out\\', 'C:\\work\\out\\', false]]);
+  assert.deepEqual(paths('(see C:\\x\\y.md).'), [['path', 'C:\\x\\y.md', 'C:\\x\\y.md', false]]);
+  assert.deepEqual(paths('開く: ~/work/app と /Users/me/a.txt'), [['path', '~/work/app', '~/work/app', false], ['path', '/Users/me/a.txt', '/Users/me/a.txt', false]]);
+  // A line number is shown but not part of what opens.
+  assert.deepEqual(paths('C:\\a\\b.md:12 を参照'), [['path', 'C:\\a\\b.md:12', 'C:\\a\\b.md', false]]);
+  // Routes, URLs, words with a slash and network locations are not files.
+  assert.deepEqual(paths('/api/sessions と https://example.com/home/x と and/or と \\\\server\\share\\x.md'), []);
+  // In code: relative paths too (opened from the work's folder), but never a command or a name without a folder.
+  assert.deepEqual(paths('`src/app.ts:42` `./docs/` `C:\\Program Files\\x` `npm run build` `text/html` `/api/run` `README.md` `@types/node`'),
+    [['code', 'src/app.ts:42', 'src/app.ts', true], ['code', './docs/', './docs/', true], ['code', 'C:\\Program Files\\x', 'C:\\Program Files\\x', false]]);
+  assert.deepEqual(parseMarkdown('```\nC:\\a\\b.md\n```')[0].path, { path: 'C:\\a\\b.md', relative: false });
+  assert.equal(plainText('C:\\a\\b.md を見て'), 'C:\\a\\b.md を見て');
 });
 
 test('an answered request stays out of the inbox unless the agent is evidently still stuck on it', () => {
@@ -851,6 +869,46 @@ test('home: every thing that waits for the human lies on the arc once; work stil
   assert.equal(entries[0].sid, 'asked'); // a request carries its work's id, so the light can glide from its orbit
   assert.equal(entries.at(-1).workspace, 'ledger・web');
   assert.deepEqual(orbitEntries(state).map((e) => e.key), ['running:runs']);
+});
+
+test('home: a finished report (research) is on the arc as a report, under the same key as a finished reply', () => {
+  const state = snapshot([
+    sess('found', { unread: true, task: { humanSteps: null, kind: 'report' } }),
+    sess('built', { unread: true, task: { humanSteps: null, kind: 'work' } }),
+    sess('unknown', { unread: true }),
+    sess('seen', { task: { humanSteps: null, kind: 'report' } }),
+  ]);
+  const entries = arcEntries(state);
+  assert.deepEqual(entries.map((e) => [e.key, e.kind]).sort(), [['finished:built', 'finished'], ['finished:found', 'report'], ['finished:unknown', 'finished']]);
+});
+
+test('a report opening: whole when short, else cut at a sentence that ends late enough, blank lines dropped', () => {
+  assert.deepEqual(excerpt('短い答え。'), { text: '短い答え。', more: false });
+  assert.deepEqual(excerpt('一段落目。\n\n\n二段落目。'), { text: '一段落目。\n二段落目。', more: false });
+  const long = `${'あ'.repeat(200)}。${'い'.repeat(100)}`;
+  assert.deepEqual(excerpt(long, 240), { text: `${'あ'.repeat(200)}。`, more: true });
+  const run = 'う'.repeat(300);
+  assert.deepEqual(excerpt(run, 240), { text: 'う'.repeat(240), more: true }, 'no sentence end: cut at the limit');
+  assert.deepEqual(excerpt(null), { text: '', more: false });
+});
+
+test('switching a work to a report shows at once (its steps and read questions go), and comes back when refused', async () => {
+  const steps = [{ title: 'PRをマージする', done: false }];
+  reset(snapshot([sess('a', { completion: 'human_steps', task: { humanSteps: steps, kind: 'work', kindPinned: false } })], [item('q', 'a', { passive: true, type: 'user_question' })]));
+  const calls = server(400);
+  const going = act('a', 'kind', { kind: 'report' });
+  assert.equal(get('a').task.kind, 'report', 'the tag changes before the server answers');
+  assert.equal(get('a').task.kindPinned, true);
+  assert.equal(get('a').task.humanSteps, null);
+  assert.equal(get('a').completion, 'unverified');
+  assert.equal(store.state.items.find((i) => i.id === 'q').status, 'expired');
+  assert.deepEqual(calls, [{ url: '/api/sessions/a/kind', body: { kind: 'report' } }]);
+  await going;
+  assert.equal(get('a').task.kind, 'work', 'refused: back as it was');
+  assert.deepEqual(get('a').task.humanSteps, steps);
+  assert.equal(get('a').completion, 'human_steps');
+  assert.equal(store.state.items.find((i) => i.id === 'q').status, 'pending');
+  assert.match(store.notices.at(-1)?.text ?? String(store.notices.at(-1)), /種類の変更/);
 });
 
 test('home: work still going circles, one point each, and work that waits for the human is not on an orbit', () => {

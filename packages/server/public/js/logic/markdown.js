@@ -4,10 +4,14 @@
 // Blocks:  { type: 'heading', level, inline } | { type: 'para', inline } | { type: 'code', lang, text, command }
 //          | { type: 'list', ordered, start, items: [{ checked: true|false|null, blocks }] }
 //          | { type: 'quote', blocks } | { type: 'hr' } | { type: 'table', align, head, rows }
-// Inline:  { t: 'text', v } | { t: 'code', v, command } | { t: 'strong'|'em'|'del', c } | { t: 'link', href, c } | { t: 'br' }
+// Inline:  { t: 'text', v } | { t: 'code', v, command, path } | { t: 'path', v, path } | { t: 'strong'|'em'|'del', c }
+//          | { t: 'link', href, c } | { t: 'br' }
+//
+// A code span that names a file or folder (and is not a command) carries `path`: { path, relative } (text.js). A path
+// written in the prose itself (C:\Users\me\notes.md, ~/work) becomes a 'path' node, with `path` of the same shape.
 //
 // Line breaks inside a paragraph are kept (as 'br'): agents write as in a chat, one thought per line.
-import { looksLikeCommand } from './text.js';
+import { barePathAt, looksLikeCommand, pathTarget } from './text.js';
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([^`\s]*)[^`]*$/;
 const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
@@ -40,7 +44,8 @@ function blocks(lines) {
       while (i < lines.length && !close.test(lines[i])) body.push(lines[i++]);
       i++; // the closing fence (or the end)
       const text = body.join('\n');
-      out.push({ type: 'code', lang: fence[2] || null, text, command: looksLikeCommand(text.trim()) ? text.trim() : null });
+      const command = looksLikeCommand(text.trim()) ? text.trim() : null;
+      out.push({ type: 'code', lang: fence[2] || null, text, command, path: command ? null : pathTarget(text) });
       continue;
     }
 
@@ -177,7 +182,8 @@ export function inline(src) {
       if (close >= 0) {
         let v = src.slice(i + run.length, close).replace(/\n/g, ' ');
         if (v.length > 2 && v.startsWith(' ') && v.endsWith(' ')) v = v.slice(1, -1);
-        push({ t: 'code', v, command: looksLikeCommand(v) ? v.trim() : null });
+        const command = looksLikeCommand(v) ? v.trim() : null;
+        push({ t: 'code', v, command, path: command ? null : pathTarget(v) });
         i = close + run.length;
         continue;
       }
@@ -215,6 +221,12 @@ export function inline(src) {
         i += href.length;
         continue;
       }
+    }
+
+    // A path in the prose: not glued to a word or another path before it (Japanese right before it is fine).
+    if (/[A-Za-z~/]/.test(ch) && !/[A-Za-z0-9._\\/:~-]/.test(src[i - 1] ?? '')) {
+      const p = barePathAt(rest);
+      if (p) { push({ t: 'path', v: p.text, path: { path: p.path, relative: false } }); i += p.text.length; continue; }
     }
 
     if (ch === '*' || ch === '_' || ch === '~') {
@@ -288,7 +300,7 @@ function emphasisAt(src, i) {
 
 /** The words of a piece of Markdown without its markup, for one- or two-line previews. */
 export function plainText(src) {
-  const flat = (nodes) => nodes.map((n) => (n.t === 'text' || n.t === 'code' ? n.v : n.t === 'br' ? '\n' : flat(n.c ?? []))).join('');
+  const flat = (nodes) => nodes.map((n) => (n.t === 'text' || n.t === 'code' || n.t === 'path' ? n.v : n.t === 'br' ? '\n' : flat(n.c ?? []))).join('');
   const walk = (bs) => bs.map((b) =>
     b.type === 'code' ? b.text
       : b.type === 'list' ? b.items.map((it) => walk(it.blocks)).join('\n')

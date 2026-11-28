@@ -86,6 +86,7 @@ export const ROUTES: Route[] = [
     return OK;
   }),
   post('/api/pick-folder', async ({ app }) => ({ path: await app.pickFolder() })),
+  post('/api/open-path', ({ app, body }) => app.openPath(String(body.path ?? ''), typeof body.sessionId === 'string' ? body.sessionId : null)),
   post('/api/settings', ({ app, body }) => ({ settings: app.setSettings(body) })),
   // ---- the human's standing preferences (こだわり) ----
   post('/api/knowledge/domains', ({ app, body }) => ({ domainId: app.setKnowledgeDomain(body ?? {}) })),
@@ -121,6 +122,11 @@ export const ROUTES: Route[] = [
     else return { value: app.revealEnv(params[0]!, name) };
     return OK;
   }),
+  // ---- schedules: work that starts by itself ----
+  post('/api/schedules', ({ app, body }) => ({ scheduleId: app.saveSchedule(body ?? {}) })),
+  post('/api/schedules/test-hook', async ({ app, body }) => (await app.testScheduleHook(body ?? {}), OK)),
+  post(`/api/schedules/${ID}/remove`, ({ app, params }) => (app.removeSchedule(params[0]!), OK)),
+  post(`/api/schedules/${ID}/run`, async ({ app, params }) => ({ sessionId: await app.runSchedule(params[0]!) })),
   post('/api/shutdown', ({ onShutdownRequest }) => new Reply(200, OK, onShutdownRequest)),
 
   // ---- requests waiting for the human ----
@@ -143,6 +149,7 @@ export const ROUTES: Route[] = [
   post(`/api/sessions/${ID}/step`, ({ app, params, body }) => app.setStepDone(params[0]!, Number(body.index), body.done !== false)),
   post(`/api/sessions/${ID}/unsend`, ({ app, params }) => (app.cancelDeferred(params[0]!), OK)),
   post(`/api/sessions/${ID}/rename`, ({ app, params, body }) => (app.rename(params[0]!, String(body.title ?? '')), OK)),
+  post(`/api/sessions/${ID}/kind`, ({ app, params, body }) => (app.setTaskKind(params[0]!, body.kind), OK)),
   // ---- voice input: a recording becomes text, the text becomes work to start (started through /api/sessions) ----
   { method: 'POST', path: /^\/api\/voice\/transcribe$/, rawLimit: MAX_VOICE_BYTES, handle: ({ app, body }) => app.transcribeVoice(body) },
   post('/api/voice/plan', ({ app, body }) => app.planVoice(body ?? {})),

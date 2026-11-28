@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import type { CoreEvent, EventStore, StoredEvent } from './events.ts';
 import { apply, fold } from './reducer.ts';
-import { APPROVAL_MODES, PROJECT_DESCRIPTION_MAX, PROVIDER_IDS, enabledProviders } from './types.ts';
+import { APPROVAL_MODES, PROJECT_DESCRIPTION_MAX, PROVIDER_IDS, TASK_KINDS, enabledProviders } from './types.ts';
 import type {
   AgentSession,
   ApprovalMode,
@@ -20,6 +20,7 @@ import type {
   KnowledgeSettings,
   VoiceSettings,
   KnowledgeEntry,
+  TaskKind,
   TaskValidation,
 } from './types.ts';
 import { addedSince, cleanLine, cleanText, combineKnowledgeText, mergeKnowledgeEntries, newLines, scopedKnowledgeText, KNOWLEDGE_LIMITS, OTHER_DOMAIN_ID } from './knowledge.ts';
@@ -145,7 +146,7 @@ export class ControlCore {
     if (Object.keys(change).length) this.emit({ type: 'project.options_changed', projectId, ...change });
   }
 
-  createSession(input: { projectId: string; provider: ProviderId; title: string; acceptanceCriteria?: string | null; checkCommand?: string | null; autoFix?: boolean; cwd?: string; extraProjectIds?: string[]; model?: string | null; effort?: string | null; approvalMode?: ApprovalMode }): AgentSession {
+  createSession(input: { projectId: string; provider: ProviderId; title: string; acceptanceCriteria?: string | null; checkCommand?: string | null; autoFix?: boolean; cwd?: string; extraProjectIds?: string[]; scheduleId?: string; model?: string | null; effort?: string | null; approvalMode?: ApprovalMode }): AgentSession {
     const project = this.state.projects.get(input.projectId);
     if (!project) throw new Error('unknown project');
     const taskId = randomUUID();
@@ -166,6 +167,7 @@ export class ControlCore {
       provider: input.provider,
       cwd: input.cwd ?? project.rootPath,
       ...(input.extraProjectIds?.length ? { extraProjectIds: [...new Set(input.extraProjectIds)].filter((id) => id !== project.id && this.state.projects.has(id)) } : {}),
+      ...(input.scheduleId ? { scheduleId: input.scheduleId } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.effort ? { effort: input.effort } : {}),
       ...(input.approvalMode && input.approvalMode !== 'ask' ? { approvalMode: input.approvalMode } : {}),
@@ -201,6 +203,27 @@ export class ControlCore {
     const s = this.state.sessions.get(sessionId);
     const t = s && this.state.tasks.get(s.taskId);
     if (t && t.readTurn !== turn) this.emit({ type: 'task.reply_read', taskId: t.id, turn });
+  }
+
+  /** The reading of the finished turn is forgotten: the reader applies it again (the human changed what the work is). */
+  forgetReading(sessionId: string): void {
+    const s = this.state.sessions.get(sessionId);
+    const t = s && this.state.tasks.get(s.taskId);
+    if (t && t.readTurn !== null) this.emit({ type: 'task.reply_read', taskId: t.id, turn: null });
+  }
+
+  /**
+   * What the human wants back from the work. Read from a reply (`pinned` false) it never overrides the human's own
+   * choice. Returns true when it changed.
+   */
+  setTaskKind(sessionId: string, kind: TaskKind, pinned: boolean): boolean {
+    const s = this.state.sessions.get(sessionId);
+    const t = s && this.state.tasks.get(s.taskId);
+    if (!t || !TASK_KINDS.includes(kind)) return false;
+    if (!pinned && t.kindPinned) return false;
+    if (t.kind === kind && t.kindPinned === pinned) return false;
+    this.emit({ type: 'task.kind', taskId: t.id, kind, pinned });
+    return true;
   }
 
   setHumanSteps(sessionId: string, steps: HumanStepInput[] | null): void {

@@ -49,6 +49,11 @@ export const host: Host = {
   },
   defaultDataDir: () => join(homedir(), 'Library', 'Application Support', 'AgentControlRoom'),
   openExternal: (url) => void spawn('/usr/bin/open', [url], { stdio: 'ignore', detached: true }).unref(),
+  openPath(path, reveal) {
+    const child = spawn('/usr/bin/open', reveal ? ['-R', path] : [path], { stdio: 'ignore', detached: true });
+    child.on('error', () => {});
+    child.unref();
+  },
   openAppWindow(url, onFail) {
     const child = spawn('/usr/bin/open', [url], { stdio: 'ignore', detached: true });
     child.on('error', onFail);

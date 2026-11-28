@@ -289,6 +289,9 @@ details.raw .subject { margin-top: 6px; }
 .s-meta .pr-closed .pr-state { color: var(--red); }
 .s-meta { display: flex; flex-wrap: wrap; gap: 3px 16px; margin-top: 4px; font-size: 12.5px; color: var(--ink-2); align-items: center; }
 .s-meta span { display: inline-flex; gap: 5px; align-items: center; min-width: 0; max-width: 100%; }
+/* The work's kind (調査 / 作業) reads like the rest of the line, but is a chip: a click switches it. Its hit area is larger than it looks. */
+.s-meta button.kind-tag { min-height: 0; padding: 3px 8px; margin: -3px -8px; gap: 5px; font-size: inherit; color: var(--ink-2); }
+.s-meta button.kind-tag:hover { background: var(--tint); color: var(--ink); }
 .s-meta .path { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch; }
 .s-body { overflow: auto; padding: 16px 20px 8px; }
 .s-body .inner { max-width: 780px; margin: 0 auto; }
@@ -568,10 +571,15 @@ h2 .n { font-weight: 400; color: var(--ink-2); font-variant-numeric: tabular-num
 .result.work .x.one { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .result.work .quick { grid-column: 2 / 4; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; margin-top: 6px; }
 .steps li .note.after { display: flex; gap: 6px; align-items: center; color: var(--acc); }
+/* A finished report (research) on the home panel: the opening of its reply as written, then 続きを読む on the right. */
+.result.report .x.excerpt { display: block; -webkit-line-clamp: none; overflow: visible; margin: 6px 0 0; color: var(--ink); white-space: pre-line; line-height: 1.7; cursor: pointer; }
+.result.report .report-acts { grid-column: 2 / 4; display: flex; gap: 6px; align-items: center; margin-top: 10px; }
+.result.report .report-acts button { padding: 4px 10px; font-size: 13px; }
+.result.report .report-acts button[aria-expanded=true] { background: var(--tint-2); }
 @media (max-width: 560px) {
   .result.work { grid-template-columns: 20px minmax(0, 1fr); }
   .result.work .do { grid-column: 2; justify-content: flex-start; }
-  .result.work .x, .result.work .quick { grid-column: 2; }
+  .result.work .x, .result.work .quick, .result.report .report-acts { grid-column: 2; }
 }
 
 /* ---------- human steps: open the work, run a step's command, what its output left ---------- */
@@ -590,6 +598,7 @@ h2 .n { font-weight: 400; color: var(--ink-2); font-variant-numeric: tabular-num
 .run-state details pre { max-height: 220px; overflow: auto; }
 .run-state .acts { flex-basis: 100%; display: flex; gap: 8px; align-items: center; }
 button.cmd:disabled { opacity: .55; text-decoration-style: dotted; }
+button.cmd.path.opening { opacity: .55; transition: opacity .1s; }
 .check-row { display: flex; gap: 8px; align-items: center; cursor: pointer; }
 .check-row input { width: auto; }
 
@@ -916,4 +925,58 @@ body[data-voice=home] .voice-say { min-height: 0; }
   body[data-voice] :is(.main, .chat-dock, .notices, .banner) { transform: none; }
   body[data-voice] :is(.chat-dock, .notices, .banner) { filter: none; }
   .voice-state.thinking { animation: none; opacity: .8; }
+}
+
+/* ---------- schedules: work that starts by itself (views/schedules.js) ---------- */
+.sched { position: relative; }
+/* Rows are parted by hairlines that stop short of both ends. */
+.sched + .sched::before { content: ""; position: absolute; top: 0; left: 10px; right: 10px; border-top: 1px solid var(--line); }
+.sched-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 60px; padding: 6px 0; }
+.sched-head { display: grid; gap: 3px; justify-items: start; text-align: left; white-space: normal; min-width: 0; padding: 8px 10px; border-color: transparent; }
+.sched-head b { font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sched-head small { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 12px; font-size: 12.5px; color: var(--ink-2); }
+.sched-head small > svg, .sched-head .sf-to svg { width: 13px; height: 13px; }
+.sched-head .sf-to { display: inline-flex; align-items: center; gap: 3px; }
+.sched.off .sched-head b { color: var(--ink-2); font-weight: 400; }
+.sched-row .ctl { display: flex; gap: 6px; align-items: center; }
+.sched-when { min-width: 11ch; text-align: right; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.sched-last { gap: 5px; font-size: 12.5px; color: var(--ink); }
+.sched-last small { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.sched-last.red > span { color: var(--red); }
+.sched-last:disabled { opacity: 1; cursor: default; }
+
+.sched-form { display: grid; gap: 10px; padding: 2px 10px 20px; }
+.sched-form .bar { display: flex; flex-wrap: wrap; gap: 2px; margin: -4px 0 0 -6px; }
+.sf-line { display: grid; grid-template-columns: 9em minmax(0, 1fr); gap: 12px; align-items: start; }
+.sf-lab { padding-top: 7px; font-size: 13px; color: var(--ink-2); }
+.sf-ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; min-height: 34px; }
+.sf-when { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sf-time, .sf-at { padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raise); font-variant-numeric: tabular-nums; }
+/* As wide as the digits it takes (up to 5), no wider. */
+.sched-form input.sf-num { width: calc(5ch + 20px); padding: 6px 8px; text-align: right; font-variant-numeric: tabular-nums; }
+.days { display: inline-flex; gap: 2px; }
+button.day { width: 32px; height: 32px; padding: 0; justify-content: center; border-color: transparent; border-radius: 999px; color: var(--ink-2); transition: background-color var(--t-s) var(--ease), color var(--t-s) var(--ease); }
+button.day[aria-pressed=true] { background: var(--tint-2); color: var(--ink); font-weight: 600; }
+.sf-next, .sf-hint { font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.sf-hook { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; }
+.sf-hook input { flex: 1 1 260px; width: auto; min-width: 0; }
+.sf-saved { display: inline-flex; gap: 6px; align-items: center; }
+.sf-saved small { color: var(--ink-2); }
+.sf-tested { display: inline-flex; gap: 5px; align-items: center; font-size: 12.5px; color: var(--ink-2); }
+.sf-tested:empty { display: none; }
+.sf-env { display: grid; gap: 0; width: 100%; }
+.sf-env:empty { display: none; }
+.sf-var { display: grid; grid-template-columns: 16px auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.sf-var code { font-family: var(--mono); font-size: 13px; }
+.sf-var small { font-size: 12px; color: var(--ink-2); }
+.sf-env-new { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 8px; width: 100%; }
+.sf-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 6px; }
+.sf-acts { display: flex; gap: 12px; align-items: center; }
+@media (prefers-reduced-motion: reduce) { button.day { transition: none; } }
+@media (max-width: 560px) {
+  .sched-row { grid-template-columns: minmax(0, 1fr); }
+  .sched-row .ctl { justify-content: flex-end; flex-wrap: wrap; }
+  .sf-line { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .sf-lab { padding-top: 0; }
+  .sf-env-new { grid-template-columns: 1fr; }
 }

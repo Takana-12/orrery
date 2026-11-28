@@ -28,6 +28,12 @@ export const host: Host = {
   freeMemoryBytes: () => freemem(),
   defaultDataDir: () => join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'AgentControlRoom'),
   openExternal: (url) => void start(url.replace(/&/g, '^&')).unref(),
+  // Explorer, not `start`: no cmd in between to read & or ^ in the path. A path cannot hold ", so quoting it is enough.
+  openPath(path, reveal) {
+    const child = spawn('explorer.exe', [reveal ? `/select,"${path}"` : `"${path}"`], { stdio: 'ignore', detached: true, windowsVerbatimArguments: true });
+    child.on('error', () => {});
+    child.unref();
+  },
   openAppWindow(url, onFail) {
     const child = start('msedge', `--app=${url}`);
     child.on('error', onFail);

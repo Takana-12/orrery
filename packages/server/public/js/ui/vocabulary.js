@@ -24,6 +24,14 @@ export const VERDICT = {
   human_steps: { word: 'あなたの作業待ち', icon: 'user', tone: 'amber' },
   accepted: { word: '完了済み', icon: 'done', tone: 'green' },
 };
+/**
+ * What the human wants back from a piece of work (core TaskKind): one shape + one word each. `next` is what a click
+ * makes it, `tip` what the tag means.
+ */
+export const TASK_KIND = {
+  report: { word: '調査', icon: 'search', next: 'work', tip: '調査: 返答をそのまま表示します。押すと「作業」に切り替えて、返答から残りの作業を読み取ります' },
+  work: { word: '作業', icon: 'wrench', next: 'report', tip: '作業: 返答から、あなたに残る作業や確認を読み取ります。押すと「調査」に切り替えて、返答をそのまま表示します' },
+};
 /** The reply ended, but the agent is waiting for its own background work and will go on by itself: running, yet idle. */
 const WAITING_BG = { word: 'バックグラウンド作業の終了待ち', icon: 'clock', tone: 'blue' };
 export const waitsForBackground = (s) => s.lifecycle === 'running' && !!s.awaitingBackground;

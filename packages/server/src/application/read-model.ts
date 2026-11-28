@@ -9,6 +9,7 @@ import type { Processes } from './processes.ts';
 import type { PullRequests } from './pull-requests.ts';
 import type { Runtime } from './runtime.ts';
 import type { Scheduler } from './scheduler.ts';
+import type { Schedules } from './schedules.ts';
 import type { Secrets } from './secrets.ts';
 import type { Sessions } from './sessions.ts';
 import type { SideChats } from './side-chats.ts';
@@ -27,6 +28,7 @@ export interface ReadModelDeps {
   accounts: Accounts;
   secrets: Secrets;
   pullRequests: PullRequests;
+  schedules: Schedules;
 }
 
 export function capabilities(rt: Runtime): Record<ProviderId, ProviderCapabilities> {
@@ -51,7 +53,7 @@ export function snapshot(rt: Runtime, d: ReadModelDeps) {
         taskTitle: t?.title ?? '?',
         completion: t ? completionOf(t, s) : ('working' as const),
         task: t
-          ? { humanSteps: t.humanSteps, acceptanceCriteria: t.acceptanceCriteria, checkCommand: t.checkCommand, autoFix: t.autoFix, fixRounds: t.fixRounds, maxFixRounds: MAX_FIX_ROUNDS, validation: t.validation, validating: t.validating, acceptedAt: t.acceptedAt }
+          ? { humanSteps: t.humanSteps, acceptanceCriteria: t.acceptanceCriteria, checkCommand: t.checkCommand, autoFix: t.autoFix, fixRounds: t.fixRounds, maxFixRounds: MAX_FIX_ROUNDS, validation: t.validation, validating: t.validating, acceptedAt: t.acceptedAt, kind: t.kind ?? null, kindPinned: !!t.kindPinned }
           : null,
         worktree: d.workspaces.view(s.id),
         pullRequest: d.pullRequests.view(s.id),
@@ -107,6 +109,8 @@ export function snapshot(rt: Runtime, d: ReadModelDeps) {
     },
     /** Side chats: conversations beside the work. Not work: never in the lists, the counts or the inbox. */
     chats: d.chats.view(),
+    /** Work that starts by itself at set times (スケジュール), with what may be known of each one's webhook and variables. */
+    schedules: d.schedules.view(),
     /** Voice input: whether the speech recogniser's model is on this machine yet. */
     voice: d.voice.view(),
     capabilities: capabilities(rt),

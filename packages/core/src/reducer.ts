@@ -108,6 +108,8 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
         acceptedAt: null,
         humanSteps: null,
         readTurn: null,
+        kind: null,
+        kindPinned: false,
       });
       return state;
     case 'task.renamed': {
@@ -151,6 +153,11 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
     case 'task.reply_read': {
       const t = state.tasks.get(e.taskId);
       if (t) t.readTurn = e.turn;
+      return state;
+    }
+    case 'task.kind': {
+      const t = state.tasks.get(e.taskId);
+      if (t) Object.assign(t, { kind: e.kind, kindPinned: e.pinned });
       return state;
     }
     case 'task.human_step_ran': {
@@ -278,6 +285,7 @@ export function apply(state: CoreState, stored: StoredEvent): CoreState {
         provider: e.provider,
         cwd: e.cwd,
         ...(e.extraProjectIds?.length ? { extraProjectIds: [...e.extraProjectIds] } : {}),
+        ...(e.scheduleId ? { scheduleId: e.scheduleId } : {}),
         providerSessionId: null,
         model: null,
         lifecycle: 'queued',

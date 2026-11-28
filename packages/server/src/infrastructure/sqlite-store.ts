@@ -70,7 +70,25 @@ export class SqliteStore implements EventStore {
         id TEXT PRIMARY KEY,
         body TEXT NOT NULL
       );
+      -- Scheduled work (see application/schedules.ts). body is the schedule as JSON, without any secret: its webhook
+      -- and its environment variables are in project_env under the scope "schedule:<id>", encrypted like a project's.
+      CREATE TABLE IF NOT EXISTS schedules (
+        id TEXT PRIMARY KEY,
+        body TEXT NOT NULL
+      );
     `);
+  }
+
+  saveSchedule(schedule: { id: string }): void {
+    this.db.prepare('INSERT INTO schedules (id, body) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET body = excluded.body').run(schedule.id, JSON.stringify(schedule));
+  }
+
+  readSchedules<T>(): T[] {
+    return (this.db.prepare('SELECT body FROM schedules').all() as unknown as { body: string }[]).map((r) => JSON.parse(r.body) as T);
+  }
+
+  deleteSchedule(id: string): void {
+    this.db.prepare('DELETE FROM schedules WHERE id = ?').run(id);
   }
 
   saveChat(chat: { id: string }): void {
@@ -134,6 +152,12 @@ export class SqliteStore implements EventStore {
    * What the agent wrote since the human last spoke in this session, oldest first (the end of it, if it is long).
    * A turn's request to the human is not always in its very last message.
    */
+  /** What the human said last to the agent (the request the current turn answers), cut to `maxChars`. */
+  lastRequest(sessionId: string, maxChars = 2000): string {
+    const row = this.db.prepare("SELECT text FROM transcript WHERE session_id = ? AND role = 'user' ORDER BY seq DESC LIMIT 1").get(sessionId) as unknown as { text: string } | undefined;
+    return (row?.text ?? '').slice(0, maxChars);
+  }
+
   turnReplies(sessionId: string, maxChars = 8000): string {
     const last = this.db.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM transcript WHERE session_id = ? AND role = 'user'").get(sessionId) as unknown as { seq: number };
     const rows = this.db.prepare("SELECT text FROM transcript WHERE session_id = ? AND role = 'assistant' AND seq > ? ORDER BY seq DESC LIMIT 40").all(sessionId, last.seq) as unknown as { text: string }[];
@@ -205,6 +229,11 @@ export class SqliteStore implements EventStore {
 
   deleteEnv(projectId: string, name: string): void {
     this.db.prepare('DELETE FROM project_env WHERE project_id = ? AND name = ?').run(projectId, name);
+  }
+
+  /** Every value kept under one owner (a project id, or a scope such as "schedule:<id>"). */
+  deleteEnvOf(projectId: string): void {
+    this.db.prepare('DELETE FROM project_env WHERE project_id = ?').run(projectId);
   }
 
   saveWorktree(info: { sessionId: string }): void {

@@ -4,6 +4,7 @@
 import { api, upload } from './api.js';
 import { actEffect, answerEffect, loginEffect, manyEffect, messageEffect, projectAddEffect, projectEffect, projectRenameEffect, settingsEffect, stepEffect, stepRunEffect } from './optimistic.js';
 import { domainRemoveEffect, domainSetEffect, entryAddEffect, entryRemoveEffect, entryUpdateEffect, knowledgeSeenEffect, knowledgeSettingsEffect, tuneSendEffect } from './knowledge.js';
+import { scheduleRemoveEffect, scheduleRunEffect, scheduleSaveEffect, saveBody } from './schedules.js';
 import { UNCONFIRMED_MS } from './selectors.js';
 import { store } from './store.js';
 
@@ -64,9 +65,9 @@ export const loadRaw = (ref) => api(`/api/raw/${ref}`);
 // ---- sessions ---------------------------------------------------------------------------------------------
 
 /** What each action is called when it has to be named in a message. */
-const ACTION_WORD = { interrupt: '中断', stop: 'プロセスの終了', cleanup: '残ったプロセスの終了', seen: '既読', archive: '片付け', unarchive: '一覧に戻す操作', check: '検証', accept: '完了', reopen: '作業に戻す操作', rename: '名前の変更', unsend: '取り消し', finish: '完了扱い' };
+const ACTION_WORD = { interrupt: '中断', stop: 'プロセスの終了', cleanup: '残ったプロセスの終了', seen: '既読', archive: '片付け', unarchive: '一覧に戻す操作', check: '検証', accept: '完了', reopen: '作業に戻す操作', rename: '名前の変更', kind: '種類の変更', unsend: '取り消し', finish: '完了扱い' };
 
-/** One of: interrupt, stop, cleanup, seen, archive, unarchive, check, accept, reopen, rename, unsend, finish. */
+/** One of: interrupt, stop, cleanup, seen, archive, unarchive, check, accept, reopen, rename, kind, unsend, finish. */
 export async function act(sessionId, action, body) {
   store.errors.delete(sessionId);
   const r = await withEffect(actEffect(sessionId, action, body), () => api(`/api/sessions/${sessionId}/${action}`, body ?? {}));
@@ -150,6 +151,17 @@ export async function setStep(sessionId, index, done) {
 }
 
 export const runCommand = (sessionId, command) => api(`/api/sessions/${sessionId}/run`, { command });
+
+/**
+ * Open a file or folder the agent named, with what this computer opens it with (a relative one is found from the work's
+ * folder). Something that would run when opened is shown in its folder instead; that, and a refusal, are said in a notice.
+ */
+export async function openPath(path, sessionId = null) {
+  const r = await api('/api/open-path', { path, sessionId });
+  if (r.status !== 200) store.notice(r.body.error || `開けませんでした (${r.status})`);
+  else if (r.body.how === 'reveal') store.notice('開くと実行されるファイルなので、フォルダで表示しました', 'info');
+  return r;
+}
 
 /** Whether a command the agent asked for is shown to the human before it runs (they can turn this off from the question itself). */
 export const confirmsCommands = () => store.state?.settings?.confirmCommands !== false;
@@ -428,6 +440,52 @@ export async function startAppUpdate() {
   } else store.notice('更新を始めました。終わると自動で開き直します');
   return r;
 }
+
+// ---- schedules: work that starts by itself -----------------------------------------------------------------------
+
+/**
+ * Save a schedule from its form. The list shows it saved at once (with its next run); if the server refuses, that is
+ * taken back, the form opens again with what was written, and the reason is shown there and in a notice.
+ */
+export async function saveSchedule(draft) {
+  store.scheduleDrafts.delete(draft.id);
+  if (store.scheduleOpen === draft.id) store.scheduleOpen = null;
+  const body = saveBody(draft);
+  const r = await withEffect(scheduleSaveEffect(body), () => api('/api/schedules', body));
+  if (r.status !== 200) {
+    const why = r.body.error || `保存できませんでした (${r.status})`;
+    store.scheduleDrafts.set(draft.id, { ...draft, error: why });
+    store.scheduleOpen = draft.id;
+    store.notice(`スケジュールを保存できませんでした: ${why}`);
+  }
+  store.changed();
+  return r;
+}
+
+/** Turn a schedule on or off from its row. */
+export async function setScheduleEnabled(id, enabled) {
+  const r = await withEffect(scheduleSaveEffect({ id, enabled }), () => api('/api/schedules', { id, enabled }));
+  if (r.status !== 200) store.notice(`スケジュールを${enabled ? 'オン' : 'オフ'}にできませんでした: ${r.body.error || r.status}`);
+  return r;
+}
+
+export async function removeSchedule(id) {
+  store.scheduleDrafts.delete(id);
+  if (store.scheduleOpen === id) store.scheduleOpen = null;
+  const r = await withEffect(scheduleRemoveEffect(id), () => api(`/api/schedules/${id}/remove`, {}));
+  if (r.status !== 200) store.notice(`スケジュールを削除できませんでした: ${r.body.error || r.status}`);
+  return r;
+}
+
+/** Run a schedule now: its row shows it running at once; the work itself appears in the lists when it starts. */
+export async function runSchedule(id) {
+  const r = await withEffect(scheduleRunEffect(id), () => api(`/api/schedules/${id}/run`, {}));
+  if (r.status !== 200) store.notice(`今すぐ実行できませんでした: ${r.body.error || r.status}`);
+  return r;
+}
+
+/** Send a test message to a webhook: the address being typed, or the schedule's saved one. Answers { status, body }. */
+export const testScheduleHook = ({ id, url }) => api('/api/schedules/test-hook', { id: id || undefined, url: url || undefined });
 
 export const env = {
   list: (projectId) => api(`/api/projects/${projectId}/env`),

@@ -64,6 +64,10 @@ export const store = {
   checkingUpdate: false,
   /** Short messages about something that just happened elsewhere on the page: [{ id, text, tone }]. */
   notices: [],
+  /** The schedule whose form is open on the schedules screen (its id; a new one's id too), or null. */
+  scheduleOpen: null,
+  /** Schedule forms being written: id -> draft (logic/schedules.js draftOf). Kept while another screen is open. */
+  scheduleDrafts: new Map(),
   /** Side chat windows, oldest first (see chats.js). */
   chatWindows: [],
   /** Chats closed from here: not given a window again while the server still lists them. */

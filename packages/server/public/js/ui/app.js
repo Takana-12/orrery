@@ -16,6 +16,7 @@ import { envView } from './views/env.js';
 import { homeView } from './views/home.js';
 import { knowledgeView } from './views/knowledge.js';
 import { knowledgeTuneView } from './views/knowledge-tune.js';
+import { schedulesView } from './views/schedules.js';
 import { sessionView } from './views/session.js';
 import { settingsView } from './views/settings.js';
 import { usageView } from './views/usage.js';
@@ -27,7 +28,7 @@ function draw() {
   document.body.dataset.view = r.view;
   renderRail(r);
   if (!ui.view || ui.view.key !== key) {
-    ui.view = r.view === 'session' ? sessionView(r.id) : r.view === 'archive' ? archiveView() : r.view === 'settings' ? settingsView() : r.view === 'knowledge' ? knowledgeView() : r.view === 'knowledge-tune' ? knowledgeTuneView() : r.view === 'usage' ? usageView() : r.view === 'env' ? envView(r.id) : homeView();
+    ui.view = r.view === 'session' ? sessionView(r.id) : r.view === 'archive' ? archiveView() : r.view === 'settings' ? settingsView() : r.view === 'knowledge' ? knowledgeView() : r.view === 'knowledge-tune' ? knowledgeTuneView() : r.view === 'usage' ? usageView() : r.view === 'env' ? envView(r.id) : r.view === 'schedules' ? schedulesView() : homeView();
     $('main').scrollTop = 0;
   }
   ui.view.update(r);

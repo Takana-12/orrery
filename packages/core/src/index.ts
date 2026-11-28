@@ -4,6 +4,8 @@ export { apply, fold, emptyState } from './reducer.ts';
 export { ControlCore } from './core.ts';
 export { KNOWLEDGE_LIMITS, OTHER_DOMAIN_ID, KNOWLEDGE_HEADING, composeFirstMessage, defaultKnowledge, knowledgeLine, entriesFor, domainsInOrder, renderKnowledge, planKnowledge, chooseDomains } from './knowledge.ts';
 export type { KnowledgePlan, RenderedKnowledge } from './knowledge.ts';
+export { SCHEDULE_INTERVAL_MAX, SCHEDULE_INTERVAL_MIN, nextRunAt, settleRule } from './schedule.ts';
+export type { ScheduleRule } from './schedule.ts';
 export { formFromElicitation } from './elicitation.ts';
 export type { ElicitationForm } from './elicitation.ts';
 export type { OpenAttention, AnswerResult, CoreOptions } from './core.ts';

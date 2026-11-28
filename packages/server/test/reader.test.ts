@@ -227,3 +227,82 @@ test('when the agent cannot be asked, the checks are kept as they were read', as
   assert.equal(w.completion(id), 'human_steps');
   assert.equal(w.asked.length, 1, 'asked once, not again and again');
 });
+
+// ---- what the human wants back: a report (research) or work the agent does by itself ----
+
+test('a report (research) is shown as written: nothing is turned into steps or questions, and the work is tagged', async () => {
+  const w = world(() => ({
+    ...NOTHING,
+    report: true,
+    steps: [{ title: '次に候補Aを試す', detail: null, command: null, after: null }],
+    questions: [{ text: 'どちらを深掘りしますか？', multiSelect: false, options: [{ label: 'A', description: null }, { label: 'B', description: null }] }],
+  }));
+  const id = w.start();
+  w.finish(id, '調べた結果、A と B の2案があります。次は A を試すのがよさそうです。どちらを深掘りしますか？');
+  await w.settle();
+  assert.equal(w.task(id).kind, 'report');
+  assert.equal(w.task(id).kindPinned, false, 'read from the reply, not chosen by the human');
+  assert.equal(w.task(id).humanSteps, null, 'no to-do list stands between the human and the reply');
+  assert.equal([...w.core.state.items.values()].filter((i) => i.status === 'pending').length, 0, 'no question is read out of it either');
+  assert.equal(w.completion(id), 'unverified');
+  assert.equal(w.task(id).readTurn, w.core.state.sessions.get(id)!.lifecycleSince, 'the reply counts as read');
+});
+
+test('the human\'s choice of kind stands over what later replies say', async () => {
+  const w = world(() => ({ ...NOTHING, report: true, steps: [{ title: 'アプリを入れ直す', detail: null, command: null, after: null }] }));
+  const id = w.start();
+  w.reader.setKind(id, 'work');
+  assert.equal(w.task(id).kind, 'work');
+  assert.equal(w.task(id).kindPinned, true);
+  w.finish(id, '調べて直しました。アプリを入れ直してください。');
+  await w.settle();
+  assert.equal(w.task(id).kind, 'work', 'a reading never overrides the human');
+  assert.equal(w.completion(id), 'human_steps');
+  assert.throws(() => w.reader.setKind(id, 'nonsense'), /種類/);
+});
+
+test('switching a read reply to a report clears its steps and questions; switching back brings them again without asking the model', async () => {
+  const w = world(() => ({
+    ...NOTHING,
+    report: false,
+    steps: [{ title: 'PRをマージする', detail: null, command: null, after: null }],
+    questions: [{ text: '続けますか？', multiSelect: false, options: [{ label: 'はい', description: null }] }],
+  }));
+  const id = w.start();
+  w.finish(id, '直しました。PR をマージしてください。続けますか？');
+  await w.settle();
+  assert.equal(w.task(id).kind, 'work');
+  assert.equal(w.completion(id), 'human_steps');
+  const pending = () => [...w.core.state.items.values()].filter((i) => i.sessionId === id && i.status === 'pending').length;
+  assert.equal(pending(), 1);
+
+  w.reader.setKind(id, 'report');
+  assert.equal(w.task(id).kind, 'report');
+  assert.equal(w.task(id).humanSteps, null);
+  assert.equal(pending(), 0, 'the question read from the reply is withdrawn');
+  assert.equal(w.completion(id), 'unverified');
+
+  w.reader.setKind(id, 'work');
+  await w.settle();
+  assert.equal(w.completion(id), 'human_steps', 'the same reading applies again');
+  assert.equal(w.calls.length, 1, 'from memory: the words have not changed');
+  w.reader.setKind(id, 'report');
+  w.reader.setKind(id, 'work');
+  await w.settle();
+  assert.equal(w.completion(id), 'human_steps', 'and again, however often it is switched');
+});
+
+test('a reading that cannot tell the kind keeps the one the work had', async () => {
+  let report: boolean | null = true;
+  const w = world(() => ({ ...NOTHING, report, steps: [{ title: 'x', detail: null, command: null, after: null }] }));
+  const id = w.start();
+  w.finish(id, '調べました。結果は次のとおりです。');
+  await w.settle();
+  assert.equal(w.task(id).kind, 'report');
+  report = null;
+  w.core.sessionUpdate(id, { lifecycle: 'running' });
+  w.finish(id, '続きも調べました。結論は同じです。');
+  await w.settle();
+  assert.equal(w.task(id).kind, 'report');
+  assert.equal(w.task(id).humanSteps, null, 'still read as a report');
+});

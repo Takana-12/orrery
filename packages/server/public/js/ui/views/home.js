@@ -44,7 +44,7 @@ const ORBITS = [
 const YOURS = new Set(['ask', 'waiting', 'look', 'steps']);
 const FAULT = new Set(['fix', 'problem']);
 /** How a kind of thing is named for screen readers and in the point's tooltip. */
-const KIND_WORD = { running: '実行中', queued: '順番待ち', ask: '回答待ち', waiting: '操作待ち', look: '確認すること', steps: 'あなたの作業', fix: '検証に失敗', candidate: '完了にできる', problem: '止まっている', finished: '返答が完了', news: '新しいこだわり' };
+const KIND_WORD = { running: '実行中', queued: '順番待ち', ask: '回答待ち', waiting: '操作待ち', look: '確認すること', steps: 'あなたの作業', fix: '検証に失敗', candidate: '完了にできる', problem: '止まっている', finished: '返答が完了', report: '調査の結果', news: '新しいこだわり' };
 
 /** Esc closes the panel of the home screen that is on screen (one listener for every home screen ever drawn). */
 let escape = null;
@@ -366,7 +366,7 @@ export function homeView() {
     open = { key, node, body };
     p.node.setAttribute('aria-expanded', 'true');
     fillPanel();
-    requestAnimationFrame(() => (node.querySelector('[data-item]') ?? node).focus());
+    requestAnimationFrame(() => (node.querySelector('[data-item], [data-autofocus]') ?? node).focus());
   };
   const fillPanel = () => {
     const p = open && points.get(open.key);

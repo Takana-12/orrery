@@ -8,7 +8,7 @@ export type { Host, Job, JobSample } from './types.ts';
 const impl: Host = process.platform === 'win32' ? (await import('./windows/index.ts')).host : (await import('./mac/index.ts')).host;
 
 export const host = impl;
-export const { createJob, protect, unprotect, executableName, findExecutable, freeMemoryBytes, defaultDataDir, openExternal, openAppWindow, pickFolder, childImages, adoptShellPath } = impl;
+export const { createJob, protect, unprotect, executableName, findExecutable, freeMemoryBytes, defaultDataDir, openExternal, openPath, openAppWindow, pickFolder, childImages, adoptShellPath } = impl;
 export const ownedSpawn = impl.ownedSpawn;
 /** OS and CPU the way npm names prebuilt packages: win32-x64, darwin-arm64 ... */
 export const npmTag = `${process.platform}-${process.arch}`;

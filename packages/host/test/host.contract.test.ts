@@ -43,6 +43,11 @@ test('host: it says which OS it is, in the words the rest of the code uses', () 
   assert.equal(host.executableName('claude'), host.os === 'windows' ? 'claude.exe' : 'claude');
 });
 
+test('host: it can open a file or folder, or show it in its folder (not run here: it would open a window)', () => {
+  assert.equal(typeof host.openPath, 'function');
+  assert.equal(host.openPath.length, 2);
+});
+
 test('job: owns a process and what it starts, measures them, and ends them all at once', async () => {
   const job = host.createJob();
   const { child, grandPid } = family(false);

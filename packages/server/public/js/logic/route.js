@@ -9,6 +9,7 @@ export function parseRoute(hash) {
   if (h === 'knowledge') return { view: 'knowledge' };
   if (h === 'knowledge/tune') return { view: 'knowledge-tune' };
   if (h === 'usage') return { view: 'usage' };
+  if (h === 'schedules') return { view: 'schedules' };
   if (h.startsWith('env/')) return { view: 'env', id: h.slice(4) };
   return { view: 'inbox' };
 }

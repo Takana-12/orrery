@@ -58,6 +58,11 @@ export interface Host {
   defaultDataDir(): string;
   /** Open a page in the person's default browser. */
   openExternal(url: string): void;
+  /**
+   * Open a file or folder on this computer with what the system opens it with (Explorer / Finder for a folder), or,
+   * with `reveal`, show it selected in its folder without opening it. The caller has checked the path exists.
+   */
+  openPath(path: string, reveal: boolean): void;
   /** Console entry point only: show the UI in a window of its own if the machine has a browser that can, else a tab. */
   openAppWindow(url: string, onFail: () => void): void;
   /** The system's folder chooser. Resolves null if cancelled, rejects if it could not be shown. */

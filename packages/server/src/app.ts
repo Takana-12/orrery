@@ -17,11 +17,14 @@ import { CodexAdapter } from '#provider-codex';
 import type { CodexStartOptions } from '#provider-codex';
 import { ClaudeAdapter } from '#provider-claude';
 import type { ClaudeOptions, ClaudeStartExtras } from '#provider-claude';
-import { pickFolder as pickFolderDialog, protect, unprotect } from '#host';
+import { openPath as openPathOnHost, pickFolder as pickFolderDialog, protect, unprotect } from '#host';
+import { openTarget } from './application/open-path.ts';
 import { SqliteStore } from './infrastructure/sqlite-store.ts';
 import { Worktrees } from './infrastructure/worktree.ts';
 import { AttachmentFiles } from './infrastructure/attachment-files.ts';
 import { pullRequestOf } from './infrastructure/shell.ts';
+import { postHook } from './infrastructure/webhook.ts';
+import type { HookMessage } from './infrastructure/webhook.ts';
 import { ChosenSpeech } from './infrastructure/speech.ts';
 import type { Speech } from './infrastructure/speech.ts';
 import { Accounts } from './application/accounts.ts';
@@ -38,6 +41,8 @@ import { Reader } from './application/reader.ts';
 import { capabilities, snapshot } from './application/read-model.ts';
 import type { Runtime } from './application/runtime.ts';
 import { Scheduler } from './application/scheduler.ts';
+import { Schedules } from './application/schedules.ts';
+import type { ScheduleInput } from './application/schedules.ts';
 import { Secrets } from './application/secrets.ts';
 import { SideChats, isChatId } from './application/side-chats.ts';
 import { Sessions } from './application/sessions.ts';
@@ -54,12 +59,16 @@ export interface AppOptions {
   pickFolder?: () => Promise<string | null>;
   /** Shell-provided "open this page in the default browser" (used for the providers' sign-in pages). */
   openExternal?: (url: string) => void;
+  /** Open a file or folder on this computer, or show it in its folder (`reveal`). Tests give their own; by default #host. */
+  openPath?: (path: string, reveal: boolean) => void;
   /** Shell-provided: drop the window's own caches (rendered pages, GPU shaders ...). */
   clearShellCache?: () => Promise<void>;
   codex?: CodexStartOptions;
   claude?: ClaudeOptions;
   /** The speech recogniser (tests give their own; by default it runs on this machine, see infrastructure/speech.ts). */
   speech?: Speech;
+  /** How a schedule's result reaches its webhook (tests give their own; by default an HTTPS POST, infrastructure/webhook.ts). */
+  postHook?: (url: string, m: HookMessage) => Promise<void>;
 }
 
 export interface StartSessionInput extends BaseStartInput {
@@ -89,6 +98,7 @@ export class App extends EventEmitter {
   private readonly knowledge: Knowledge;
   private readonly knowledgeTune: KnowledgeTune;
   private readonly voice: Voice;
+  private readonly schedules: Schedules;
   private readonly speech: Speech;
   private readonly opts: AppOptions;
   private sampler: NodeJS.Timeout | null = null;
@@ -134,11 +144,13 @@ export class App extends EventEmitter {
     this.usageResumer = new UsageResumer(rt, this.sessions, this.journal, (provider) => this.accounts.refreshLimits(provider));
     this.checker = new Checker(rt, this.sessions, this.secrets, this.journal);
     this.reader = new Reader(rt, this.sessions, this.secrets, this.journal, assistant);
+    this.schedules = new Schedules(rt, { sessions: this.sessions, secrets: this.secrets, journal: this.journal, post: opts.postHook ?? postHook });
 
     this.sampler = setInterval(() => {
       this.processes.sampleAll();
       this.scheduler.pump(); // free memory may have changed
       this.usageResumer.tick();
+      this.schedules.tick();
       void this.pullRequests.tick();
     }, 5000);
     this.sampler.unref();
@@ -209,6 +221,7 @@ export class App extends EventEmitter {
       this.scheduler.pump();
       this.checker.onChange();
       this.reader.onChange();
+      this.schedules.onChange();
     });
   }
 
@@ -222,7 +235,11 @@ export class App extends EventEmitter {
   addProject(path: string, name?: string) { return this.sessions.addProject(path, name); }
   renameProject(projectId: string, name: string) { return this.sessions.renameProject(projectId, name); }
   setProjectOptions(projectId: string, options: { useWorktree?: unknown; preamble?: unknown; approvalMode?: unknown; captureKnowledge?: unknown; description?: unknown }) { return this.sessions.setProjectOptions(projectId, options); }
-  startSession(input: StartSessionInput) { return this.sessions.start(input); }
+  /** New work from a request: which schedule a piece of work belongs to is never taken from outside. */
+  startSession(input: StartSessionInput) {
+    const { scheduleId: _, ...rest } = input ?? ({} as StartSessionInput);
+    return this.sessions.start(rest);
+  }
   sendMessage(sessionId: string, text: string, options: { effort?: unknown } = {}) { return this.sessions.send(sessionId, text, options); }
   cancelDeferred(sessionId: string) { return this.sessions.cancelDeferred(sessionId); }
   interrupt(sessionId: string) { return this.sessions.interrupt(sessionId); }
@@ -230,6 +247,8 @@ export class App extends EventEmitter {
   finishWaiting(sessionId: string) { return this.sessions.finishWaiting(sessionId); }
   markSeen(sessionId: string) { return this.sessions.markSeen(sessionId); }
   rename(sessionId: string, title: string) { return this.sessions.rename(sessionId, title); }
+  /** The human says what the work is: research to read as it was written, or work the agent does by itself. */
+  setTaskKind(sessionId: string, kind: unknown) { return this.reader.setKind(sessionId, kind); }
   setArchived(sessionId: string, archived: boolean) { return this.sessions.setArchived(sessionId, archived); }
   setAccepted(sessionId: string, accepted: boolean) { return this.sessions.setAccepted(sessionId, accepted); }
   setStepDone(sessionId: string, index: number, done: boolean) { return this.sessions.setStepDone(sessionId, index, done); }
@@ -258,6 +277,11 @@ export class App extends EventEmitter {
   interruptChat(chatId: string) { return this.chats.interrupt(chatId); }
   closeChat(chatId: string) { return this.chats.close(chatId); }
 
+  saveSchedule(input: ScheduleInput) { return this.schedules.save(input ?? {}); }
+  removeSchedule(id: string) { return this.schedules.remove(id); }
+  runSchedule(id: string) { return this.schedules.runNow(id); }
+  testScheduleHook(input: { id?: unknown; url?: unknown }) { return this.schedules.testHook(input ?? {}); }
+
   listEnv(projectId: string) { return this.secrets.list(projectId); }
   setEnv(projectId: string, name: string, value: string) { return this.secrets.set(projectId, name, value); }
   deleteEnv(projectId: string, name: string) { return this.secrets.delete(projectId, name); }
@@ -275,11 +299,22 @@ export class App extends EventEmitter {
     });
   }
 
+  /**
+   * Open a file or folder an agent named. A relative path is found from the folder of the work it was written in
+   * (`sessionId`); what would run when opened is only shown in its folder (application/open-path.ts).
+   */
+  openPath(path: string, sessionId: string | null): { how: 'open' | 'reveal' } {
+    const cwd = sessionId ? this.core.state.sessions.get(sessionId)?.cwd ?? null : null;
+    const target = openTarget(path, cwd);
+    (this.opts.openPath ?? openPathOnHost)(target.path, target.how === 'reveal');
+    return { how: target.how };
+  }
+
   capabilities() { return capabilities(this.rt); }
 
   /** The one document the UI is sent. */
   snapshot() {
-    return snapshot(this.rt, { scheduler: this.scheduler, processes: this.processes, workspaces: this.workspaces, journal: this.journal, sessions: this.sessions, chats: this.chats, knowledgeTune: this.knowledgeTune, voice: this.voice, accounts: this.accounts, secrets: this.secrets, pullRequests: this.pullRequests });
+    return snapshot(this.rt, { scheduler: this.scheduler, processes: this.processes, workspaces: this.workspaces, journal: this.journal, sessions: this.sessions, chats: this.chats, knowledgeTune: this.knowledgeTune, voice: this.voice, accounts: this.accounts, secrets: this.secrets, pullRequests: this.pullRequests, schedules: this.schedules });
   }
 
   async shutdown(opts: { archiveCodexThreads?: boolean } = {}): Promise<void> {

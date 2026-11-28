@@ -36,7 +36,9 @@ function buildRail() {
     authBox,
     el('div', { class: 'rail-scroll' }, toc.node, sendingBox, groups),
     limits,
-    el('div', { class: 'rail-foot' }, el('span', { class: 'grow', title: '' }, icon('chip', 's'), ram), el('button', { class: 'quiet', onclick: () => go('#/settings'), title: '設定 (Ctrl+,)', 'aria-label': '設定' }, icon('gear', 's')),
+    el('div', { class: 'rail-foot' }, el('span', { class: 'grow', title: '' }, icon('chip', 's'), ram),
+      el('button', { class: 'quiet', onclick: () => go('#/schedules'), title: 'スケジュール（決まった時刻に始める作業）', 'aria-label': 'スケジュール' }, icon('clock', 's')),
+      el('button', { class: 'quiet', onclick: () => go('#/settings'), title: '設定 (Ctrl+,)', 'aria-label': '設定' }, icon('gear', 's')),
       el('button', { class: 'quiet', onclick: () => go('#/archive'), title: 'アーカイブ (Ctrl+H)', 'aria-label': 'アーカイブ' }, icon('archive', 's')),
       el('button', { class: 'quiet update-btn', onclick: askUpdate, title: '更新（ソースから作り直して開き直す）', 'aria-label': 'Orreryを更新' }, icon('restore', 's')),
       el('button', { class: 'quiet new-work-btn', onclick: () => go('#/new'), title: '新しい作業を始める (n)', 'aria-label': '新しい作業' }, icon('plus', 's'))));

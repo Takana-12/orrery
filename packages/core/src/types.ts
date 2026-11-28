@@ -58,7 +58,22 @@ export interface Task {
    * Recorded so a restart does not read the same reply again (and reset the steps the human already ticked).
    */
   readTurn: number | null;
+  /**
+   * What the human wants back from this work (see TaskKind). Null until the first reply has been read. Read again with
+   * every finished turn, unless the human chose it (`kindPinned`): their call stands for the rest of the work.
+   */
+  kind: TaskKind | null;
+  kindPinned: boolean;
 }
+
+/**
+ * What the human wants back from a piece of work:
+ *   report  the answer itself (research, a question, a review, a comparison): the agent's reply is the deliverable,
+ *           so it is shown as it was written, never turned into a to-do list for the human
+ *   work    changes the agent makes by itself (edit, fix, build, run): what is left for the human is read out of the reply
+ */
+export type TaskKind = 'report' | 'work';
+export const TASK_KINDS: readonly TaskKind[] = ['report', 'work'];
 
 export interface HumanStep {
   title: string;
@@ -280,6 +295,8 @@ export interface AgentSession {
    * chose them. `projectId` is the main one: its folder is the cwd and its settings apply. Absent: none.
    */
   extraProjectIds?: string[];
+  /** The schedule (設定 → スケジュール) that started this work, if one did. Its own environment variables go with it. */
+  scheduleId?: string;
   /** Claude session id / Codex thread id. Null until the provider reports it. */
   providerSessionId: string | null;
   model: string | null;

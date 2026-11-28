@@ -1,6 +1,6 @@
 // Parts of a piece of work that several screens show: commands the agent asked for, the human's own steps,
 // and the verdict on the work with its evidence.
-import { act, finishChecks, reportCommand, runCommand, runStep, setStep } from '../logic/actions.js';
+import { act, finishChecks, openPath, reportCommand, runCommand, runStep, setStep } from '../logic/actions.js';
 import { clock, fullStamp } from '../logic/format.js';
 import { parseMarkdown } from '../logic/markdown.js';
 import { store } from '../logic/store.js';
@@ -75,6 +75,23 @@ export function cmdButton(sessionId, command, run = null) {
   return b;
 }
 
+/**
+ * A file or folder the agent named, as something to click: it opens at once with what this computer opens it with,
+ * no question asked (nothing runs; the server shows what would run in its folder instead). Looks like a command.
+ */
+function pathButton(sessionId, text, target) {
+  const b = el('button', { type: 'button', class: 'cmd path', title: target.relative ? 'クリックで、この作業のフォルダから開きます' : 'クリックで開きます' }, text);
+  b.addEventListener('click', async (e) => {
+    e.stopPropagation(); // inside something clickable (a step that opens its work) it only opens the path
+    b.classList.add('opening');
+    await openPath(target.path, sessionId);
+    b.classList.remove('opening');
+  });
+  return b;
+}
+/** A path is clickable when there is something to find it from: an absolute one always, a relative one in a work. */
+const clickablePath = (target, sid) => !!target && (!target.relative || !!sid);
+
 /** A step's command: asked about, then run; what it left is read on the server and arrives as the updated list. */
 function stepCommand(sess, index, st) {
   const b = cmdButton(sess.id, st.command, async () => {
@@ -128,7 +145,7 @@ function everyStepToggle(key, held) {
 }
 
 /** A step's detail. Commands written in it (`npm run dev`) can be clicked to run, as in the agent's reply. */
-const stepDetail = (sessionId, text, cls = 'note') => (sessionId && text.includes('`') ? el('div', { class: `${cls} rich` }, richText(text, sessionId)) : el('div', { class: cls }, text));
+const stepDetail = (sessionId, text, cls = 'note') => (sessionId && (text.includes('`') || /[A-Za-z]:[\\/]|~\//.test(text)) ? el('div', { class: `${cls} rich` }, richText(text, sessionId)) : el('div', { class: cls }, text));
 
 export function stepsBox(sess, { titled, aside = null }) {
   const steps = sess.task.humanSteps ?? [];
@@ -229,7 +246,7 @@ function mdBlock(b, sid) {
   switch (b.type) {
     case 'heading': return el(`h${Math.min(b.level + 2, 6)}`, { class: `md-h${b.level}` }, mdInline(b.inline, sid));
     case 'para': return el('p', {}, mdInline(b.inline, sid));
-    case 'code': return el('pre', { class: 'code' }, b.command && sid ? cmdButton(sid, b.command) : b.text);
+    case 'code': return el('pre', { class: 'code' }, b.command && sid ? cmdButton(sid, b.command) : clickablePath(b.path, sid) ? pathButton(sid, b.text.trim(), b.path) : b.text);
     case 'hr': return el('hr');
     case 'quote': return el('blockquote', {}, b.blocks.map((x) => mdBlock(x, sid)));
     case 'list': return el(b.ordered ? 'ol' : 'ul', { start: b.ordered && b.start !== 1 ? String(b.start) : null },
@@ -247,7 +264,8 @@ function mdInline(nodes, sid) {
     switch (n.t) {
       case 'text': return n.v;
       case 'br': return el('br');
-      case 'code': return n.command && sid ? cmdButton(sid, n.command) : el('code', {}, n.v);
+      case 'code': return n.command && sid ? cmdButton(sid, n.command) : clickablePath(n.path, sid) ? pathButton(sid, n.v, n.path) : el('code', {}, n.v);
+      case 'path': return pathButton(sid, n.v, n.path);
       case 'strong': return el('strong', {}, mdInline(n.c, sid));
       case 'em': return el('em', {}, mdInline(n.c, sid));
       case 'del': return el('del', {}, mdInline(n.c, sid));

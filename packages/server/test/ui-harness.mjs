@@ -35,6 +35,7 @@ function stub() {
   sessionStorage.setItem('crToken', 'harness');
   try { localStorage.clear(); } catch {}
   const min = 60000;
+  const RESEARCH = ['## 結論', '', '日英が混ざる話し言葉なら **SenseVoice Small** がいちばん向いています。Whisper large-v3-turbo は精度は高いものの、言語を1つに決めてしまうため、混在すると片方が落ちやすいです。', '', '## 比較', '', '| モデル | 大きさ | 10秒の音声 | 日英の混在 |', '|:--|--:|--:|:--|', '| SenseVoice Small | 230 MB | 約0.5秒 | 両方出る |', '| Whisper large-v3-turbo | 1.0 GB | 約7秒 | 片方が落ちる |', '| Kotoba-Whisper v2 | 1.5 GB | 約6秒 | 日本語のみ |', '', '## 補足', '', '- 日本語の文の中の英単語はカタカナで出ることが多いので、後段で直すのが現実的です。', '- いずれも CPU だけで動きます。'].join(String.fromCharCode(10));
   const sess = (id, o) => ({
     id, projectId: 'p1', taskId: `t-${id}`, provider: 'claude', projectName: 'orrery', cwd: 'C:\\work\\orrery', taskTitle: id, providerSessionId: `ps-${id}`,
     lifecycle: 'turn_finished', lifecycleSince: NOW - 12 * min, createdAt: NOW - 60 * min, updatedAt: NOW - 12 * min, completion: 'unverified', unread: false, archived: false,
@@ -73,6 +74,8 @@ function stub() {
       { title: '見出し・日付・ラベル・ナビなどの短い文字がドット書体になっている', detail: 'トップ、作品一覧、作品詳細、経歴の各ページの見出し・日付・ラベル・ナビ', command: null, after: null, done: false, check: { update: 'rebuild', how: '変更を取り込むため、返答にある `npx next dev --webpack` で開発サーバーを起動し、ブラウザでトップを開く', command: null } },
       { title: 'スマホ幅で、レイアウトが崩れていない', detail: 'ブラウザの表示幅をスマホ幅に狭めたトップ、作品詳細、経歴の各ページ', command: null, after: null, done: false, check: { update: 'rebuild', how: '変更を取り込むため、返答にある `npx next dev --webpack` で開発サーバーを起動し、ブラウザでトップを開く', command: null } },
     ] }) }),
+    // A report (research): the reply itself is what was asked for, so it is shown as written (the arc's panel shows its opening).
+    sess('s20', { taskTitle: 'ローカル音声認識モデルの比較', unread: true, lifecycleSince: NOW - 1 * min, lastText: RESEARCH, task: task({ checkCommand: null, autoFix: false, kind: 'report', kindPinned: false }) }),
     sess('s15', { taskTitle: 'テストの完了を待っている作業', lifecycle: 'running', lifecycleSince: NOW - 4 * min, completion: 'working', lastText: 'E2Eテストをバックグラウンドで回しています。終わったら報告します。', background: ['npm run e2e'], awaitingBackground: true }),
   ];
   const item = (id, sessionId, o) => {
@@ -100,6 +103,15 @@ function stub() {
     chats: [],
     projects: [{ id: 'p1', name: 'orrery', rootPath: 'C:\\work\\orrery', createdAt: NOW, envCount: 2 }, { id: 'p2', name: 'ledger', rootPath: 'C:\\work\\ledger', createdAt: NOW, envCount: 0 }],
     capabilities: {},
+    // Work that starts by itself: a weekday report sent to Discord (its last run sent), an interval one that is off,
+    // and a one-off whose last run failed to send.
+    schedules: [
+      { id: 'sc1', name: '朝のコミットまとめ', prompt: '昨日のコミットを3行でまとめて', projectId: 'p1', projectName: 'orrery', provider: 'claude', model: 'sonnet', effort: 'low', rule: { kind: 'daily', time: '09:00', days: [1, 2, 3, 4, 5] }, enabled: true, tidy: true, createdAt: NOW - 3 * 1440 * min, updatedAt: NOW - 1440 * min, nextAt: NOW + 14 * 60 * min, hook: { kind: 'discord', host: 'discord.com' }, env: [{ name: 'GITHUB_TOKEN', length: 40 }], busy: false,
+        runs: [{ at: NOW - 10 * 60 * min, sessionId: 's5', outcome: 'started', error: null, delivery: { phase: 'sent', at: NOW - 9 * 60 * min, error: null } }] },
+      { id: 'sc2', name: '', prompt: 'ledger のテストを流して、落ちていたら原因を調べて', projectId: 'p2', projectName: 'ledger', provider: 'codex', model: 'gpt-5.5-codex', effort: 'medium', rule: { kind: 'interval', minutes: 120 }, enabled: false, tidy: true, createdAt: NOW - 2 * 1440 * min, updatedAt: NOW - 1440 * min, nextAt: null, hook: null, env: [], busy: false, runs: [] },
+      { id: 'sc3', name: '週末の依存チェック', prompt: 'npm outdated を見て、上げてよいものを一覧にして', projectId: 'p1', projectName: 'orrery', provider: 'claude', model: 'opus', effort: 'medium', rule: { kind: 'daily', time: '18:30', days: [5] }, enabled: true, tidy: false, createdAt: NOW - 9 * 1440 * min, updatedAt: NOW - 9 * 1440 * min, nextAt: NOW + 3 * 1440 * min, hook: { kind: 'slack', host: 'hooks.slack.com' }, env: [], busy: false,
+        runs: [{ at: NOW - 4 * 1440 * min, sessionId: 's6', outcome: 'started', error: null, delivery: { phase: 'failed', at: NOW - 4 * 1440 * min, error: '送信先が 404 を返しました' } }] },
+    ],
     // One prompt per section: normal, near the attachment limit, over it, and two not yet looked at.
     knowledge: {
       domains: [
@@ -142,6 +154,11 @@ function stub() {
     claude: [{ id: 'opus', label: 'Opus 5.5', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], isDefault: true }, { id: 'sonnet', label: 'Sonnet 5.5', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] }, { id: 'haiku', label: 'Haiku 5.5', efforts: [] }],
     codex: [{ id: 'gpt-5.5-codex', label: 'GPT-5.5 Codex', efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'], isDefault: true }, { id: 'gpt-6-luna', label: 'GPT-6-Luna', efforts: ['low', 'medium', 'high'] }],
   };
+  const transcript17 = [
+    { seq: 1, role: 'user', at: NOW - 9 * min, text: 'PC内で動く音声認識モデルを、日本語と英語の混在に強い順に調べて比べて。' },
+    { seq: 2, role: 'tool', at: NOW - 8 * min, text: '▶ WebSearch {"query":"SenseVoice Whisper turbo 日英 混在 比較"}' },
+    { seq: 3, role: 'assistant', at: NOW - 1 * min, text: RESEARCH },
+  ];
   const transcript = [
     { seq: 1, role: 'user', at: NOW - 14 * min, text: 'モデル選択を、押した場所に開くメニューにして。' },
     { seq: 2, role: 'assistant', at: NOW - 13 * min, text: 'いまの `openModelSheet` を外します。先に依存を確認します。' },
@@ -191,7 +208,7 @@ function stub() {
       push();
       return json(m[1] ? { ok: true } : { chatId: id });
     }
-    if (/\/transcript(\?|$)/.test(path)) return json({ entries: path.includes('?') ? [] : transcript });
+    if (/\/transcript(\?|$)/.test(path)) return json({ entries: path.includes('?') ? [] : path.includes('/s20/') ? transcript17 : transcript });
     if (path === '/api/usage') {
       const u = (pct) => ({ limits: [{ label: '5時間枠', kind: 'five_hour', usedPercent: pct, state: 'ok', resetsAt: NOW + 95 * min }, { label: '週間枠', kind: 'weekly', usedPercent: pct + 58, state: 'warning', resetsAt: NOW + 3 * 1440 * min }], limitsAt: NOW, limitsError: null, today: { input: 412000, output: 58000, cached: 0, turns: 23 }, week: { input: 3.4e6, output: 410000, cached: 0, turns: 164 } });
       return json({ claude: u(34), codex: u(12) });
@@ -232,6 +249,12 @@ function stub() {
         { projectId: 'p2', provider: 'codex', model: 'gpt-5.5-codex', effort: 'medium', prompt: '移行スクリプトにテストを足して。' },
       ] });
     }
+    // Schedules (manual): saved, run, removed and tested after a second; `fail` refuses.
+    if (MANUAL && path.startsWith('/api/schedules')) {
+      await sleep(1000);
+      if (location.search.includes('fail')) return json({ error: '断られました（ハーネス）' }, 400);
+      return json(path.endsWith('/run') ? { sessionId: 's5' } : path === '/api/schedules' ? { scheduleId: 'x' } : { ok: true });
+    }
     if (MANUAL && path === '/api/pick-folder') { await sleep(300); return json({ path: 'C:\\work\\atlas' }); }
     if (MANUAL && path === '/api/projects' && !location.search.includes('fail')) {
       await sleep(1000);
@@ -257,7 +280,7 @@ function stub() {
   window.addEventListener('load', async () => {
     if (MANUAL) return;
     await sleep(600);
-    const routes = ['#/', ...sessions.map((s) => `#/s/${s.id}`), '#/s/none', '#/new', '#/archive', '#/settings', '#/knowledge', '#/knowledge/tune', '#/usage', '#/env/p1', '#/env/none', '#/'];
+    const routes = ['#/', ...sessions.map((s) => `#/s/${s.id}`), '#/s/none', '#/new', '#/archive', '#/settings', '#/knowledge', '#/knowledge/tune', '#/usage', '#/env/p1', '#/env/none', '#/schedules', '#/'];
     let n = 0;
     for (const r of routes) {
       location.hash = r;

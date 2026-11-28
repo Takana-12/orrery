@@ -27,7 +27,7 @@ export function orbitEntries(state) {
 
 /**
  * Everything on the arc, most pressing first. Each entry: { key, kind, sid, workspace, title, s?, item?, g?, news? }.
- *   kind  ask | waiting | steps | look | fix | candidate | problem | finished | news
+ *   kind  ask | waiting | steps | look | fix | candidate | problem | finished | report | news
  * (waiting: the agent waits for the human in a way it could not put as a request; it is otherwise still going)
  * `key` stays the same for as long as the thing waits, so its point keeps its place on the arc.
  */
@@ -42,7 +42,9 @@ export function arcEntries(state) {
     ...m.candidates.map(work('candidate')),
     ...m.problems.map(work('problem')),
     // A finished reply waits on the arc until it has been read; after that it is found in the rail like work that is going.
-    ...m.finished.filter((s) => s.unread).map(work('finished')),
+    // A report (research: the reply is what was asked for) shows the reply's opening instead. Its key stays that of a
+    // finished reply, so the point keeps its place when the reply is told to be one.
+    ...m.finished.filter((s) => s.unread).map((s) => ({ ...work('finished')(s), kind: s.task?.kind === 'report' ? 'report' : 'finished' })),
   ];
   const news = knowledgeNews(state);
   if (news.count) out.push({ key: 'news', kind: 'news', sid: null, workspace: '', title: 'こだわり', news });

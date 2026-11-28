@@ -28,6 +28,11 @@ export interface ReplyReading {
   steps: { title: string; detail: string | null; command: string | null; after: string | null }[];
   /** Things to see for oneself after bringing the change in. Null: nothing to look at. */
   look: LookReading | null;
+  /**
+   * The human asked for an answer to read (research, a question, a review): the reply itself is what they wanted.
+   * False: the agent was to change things by itself. Absent or null: could not be told (the work's kind is kept).
+   */
+  report?: boolean | null;
 }
 
 /** Where to find out what the reply left vague: the agent's own conversation (forked, not continued), or its record. */
@@ -106,7 +111,7 @@ export type HelperModel = PreferenceModel & { planVoice?: VoicePlanner['plan']; 
 export interface AssistantModel {
   generateTitle(instruction: string): Promise<string | null>;
   /** Null when the reply could not be read (no sign-in, time-out, unusable answer). */
-  readFinalReply(reply: string, context: { background: string[] }): Promise<ReplyReading | null>;
+  readFinalReply(reply: string, context: { background: string[]; request?: string | null }): Promise<ReplyReading | null>;
   /** Null when the output could not be read. */
   readCommandResult(input: { step: { title: string; detail: string | null }; command: string; ok: boolean; exitCode: number | null; output: string; laterSteps: string[] }): Promise<CommandReading | null>;
   /**

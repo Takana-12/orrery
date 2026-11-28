@@ -13,6 +13,7 @@ import { checksBox, checksSig, doneButton, evidenceLine, stepsBox, stepsSig, wor
 import { ticket, ticketSig } from '../ticket.js';
 import { lampFor, nowLine, wordFor } from '../vocabulary.js';
 import { plainText } from '../../logic/markdown.js';
+import { excerpt } from '../../logic/text.js';
 import { fullStamp } from '../../logic/format.js';
 
 /** A reply box inside a row. It shares its draft with the session's own reply box. */
@@ -77,6 +78,32 @@ const finishedRow = (s) => workRow(s, {
   actions: [doneButton(s)],
 });
 
+/**
+ * A finished report (research: the reply itself is what was asked for). The opening of the reply, as it was written,
+ * then 続きを読む on the right, which opens the work at the reply's start. Nothing is read out of it for the human.
+ */
+function reportRow(s) {
+  const open = () => go(`#/s/${s.id}`);
+  const { text, more } = excerpt(plainText(s.lastText ?? ''));
+  const replying = store.replying.has(s.id);
+  return el('div', { class: 'result work report', 'data-work': s.id },
+    lampFor(s),
+    el('button', { class: 'quiet t', title: `${wordFor(s)}。開く`, onclick: open }, s.unread && el('span', { class: 'new-dot', title: '結果をまだ見ていません' }), s.taskTitle, workspaceTag(s)),
+    el('span', { class: 'do' }, el('span', { class: 'age', title: wordFor(s) }, agoWord(s.lifecycleSince ?? s.updatedAt)), doneButton(s)),
+    el('p', { class: 'x excerpt', title: 'クリックで続きを読む', onclick: () => { if (!getSelection()?.toString()) open(); } }, more ? `${text}…` : text),
+    el('div', { class: 'report-acts' },
+      el('button', { 'aria-expanded': String(replying), onclick: () => {
+        if (replying) store.replying.delete(s.id);
+        else store.replying.add(s.id);
+        render();
+        if (!replying) requestAnimationFrame(() => document.querySelector(`[data-work="${s.id}"] .quick input`)?.focus());
+      } }, icon('pencil', 's'), '返信'),
+      el('span', { class: 'grow' }),
+      el('button', { class: 'primary', 'data-autofocus': '', onclick: open }, '続きを読む', icon('next', 's'))),
+    store.errors.has(s.id) && el('span', { class: 'x err', role: 'alert' }, store.errors.get(s.id)),
+    replying && quickReply(s, '追加の指示を書いて Enter'));
+}
+
 const waitingRow = (s) => workRow(s, {
   text: 'エージェントがあなたの操作を待っています。開いて確認してください。',
   reply: { word: '次の指示', placeholder: '' },
@@ -122,6 +149,7 @@ const VIEWS = {
   candidate: { build: (e) => verdictRow(e.s), sig: (e) => vSig(e.s) },
   problem: { build: (e) => problemRow(e.s), sig: (e) => rowSig(e.s) },
   finished: { build: (e) => finishedRow(e.s), sig: (e) => rowSig(e.s) },
+  report: { build: (e) => reportRow(e.s), sig: (e) => rowSig(e.s) },
   news: { build: (e) => newsRow(e.news), sig: (e) => newsSig(e.news) },
   running: { build: (e) => goingRow(e.s), sig: (e) => rowSig(e.s) },
   queued: { build: (e) => goingRow(e.s), sig: (e) => rowSig(e.s) },

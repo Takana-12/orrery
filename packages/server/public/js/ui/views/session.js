@@ -14,7 +14,7 @@ import { icon } from '../icons.js';
 import { go, render, ui } from '../shell.js';
 import { finishWork, richText, stepsBox, verdictNodes } from '../task-parts.js';
 import { ticket, ticketSig } from '../ticket.js';
-import { APPROVAL, BUSY_WORD, EFFORT, PROVIDER, STATE, lamp, lampFor, waitsForBackground, wordFor } from '../vocabulary.js';
+import { APPROVAL, BUSY_WORD, EFFORT, PROVIDER, TASK_KIND, STATE, lamp, lampFor, waitsForBackground, wordFor } from '../vocabulary.js';
 
 function messageNode(e, sessionId) {
   const WHO = { user: 'user', assistant: 'agent', tool: 'terminal', system: 'info' };
@@ -117,11 +117,21 @@ export function sessionView(id) {
       earlier.hidden = r.body.entries.length < 200;
     }
     if (!initial && !firstSeq) { log.replaceChildren(); firstSeq = r.body.entries[0].seq; } // the first entries of a record that was empty
-    for (const e of r.body.entries) log.append(messageNode(e, id));
+    let reply = null; // the last reply the agent wrote, as drawn
+    for (const e of r.body.entries) {
+      const node = messageNode(e, id);
+      log.append(node);
+      if (e.role === 'assistant') reply = node;
+    }
     lastSeq = r.body.entries.at(-1).seq;
     // The record now shows what was sent from here: its provisional copy has done its job.
     if (!initial) confirmSent(id, r.body.entries.filter((e) => e.role === 'user').length);
-    if (stick) body.scrollTop = body.scrollHeight;
+    // A finished report is opened where its reply begins (that is what was asked for), not at its end.
+    const s = store.state.sessions.find((x) => x.id === id);
+    if (initial && reply && s?.task?.kind === 'report' && s.lifecycle === 'turn_finished') {
+      body.scrollTop += reply.getBoundingClientRect().top - body.getBoundingClientRect().top - 12;
+      jump.hidden = atBottom();
+    } else if (stick) body.scrollTop = body.scrollHeight;
     else jump.hidden = false;
   }
   earlier.addEventListener('click', async () => {
@@ -182,7 +192,7 @@ export function sessionView(id) {
         el('div', { class: 'msg user unsent' }, icon('user'), el('div', {}, el('div', { class: 'text' }, m.text), el('div', { class: 'when' }, icon(m.sent ? 'clock' : 'running', m.sent ? 's' : 's spin'), m.sent ? ' 送信済み（エージェントの開始待ち）' : ' 送信中'))));
       if (s.completion !== 'human_steps') stepsShown.delete(id); // the next list of steps is shown first again
       const res = s.resources;
-      const sig = [s.lifecycle, s.completion, s.taskTitle, s.effort, s.approvalMode, s.deferredMessage, s.busyWith, s.awaitingBackground, JSON.stringify(s.usageResume ?? null), (s.background ?? []).join('、'), others.length, JSON.stringify(s.task?.humanSteps ?? null), stepsShown.get(id), store.everyStep.has(id), s.queuePosition, s.task?.validating, s.task?.validation?.at, s.task?.fixRounds, s.live, s.process, s.model, s.archived, s.resumability, JSON.stringify(s.pullRequest ?? null), res?.processCount, res && Math.round(res.workingSetBytes / 5e6), s.error, store.errors.get(id), ago(s.lifecycleSince)].join('|');
+      const sig = [s.lifecycle, s.completion, s.task?.kind, s.task?.kindPinned, s.taskTitle, s.effort, s.approvalMode, s.deferredMessage, s.busyWith, s.awaitingBackground, JSON.stringify(s.usageResume ?? null), (s.background ?? []).join('、'), others.length, JSON.stringify(s.task?.humanSteps ?? null), stepsShown.get(id), store.everyStep.has(id), s.queuePosition, s.task?.validating, s.task?.validation?.at, s.task?.fixRounds, s.live, s.process, s.model, s.archived, s.resumability, JSON.stringify(s.pullRequest ?? null), res?.processCount, res && Math.round(res.workingSetBytes / 5e6), s.error, store.errors.get(id), ago(s.lifecycleSince)].join('|');
       if (sig !== headSig) {
         headSig = sig;
         title.textContent = s.taskTitle;
@@ -193,7 +203,10 @@ export function sessionView(id) {
           // What was just asked for, and a state that is easy to mistake for "finished", are spelled out.
           doing || waitsBg ? el('span', { class: 'note' }, word) : el('span', { class: 'sr-only' }, word), el('span', { class: 'note' }, ago(s.lifecycleSince)));
         stateEl.title = `${word}（${agoWord(s.lifecycleSince)}から）`;
+        const kind = TASK_KIND[s.task?.kind];
         put(meta,
+          // What the work is (read from its replies, or chosen here): a click switches it, at once.
+          kind && el('button', { type: 'button', class: `chip kind-tag${s.task.kindPinned ? ' pinned' : ''}`, title: kind.tip, 'aria-label': `種類: ${kind.word}（押すと切り替え）`, onclick: () => act(id, 'kind', { kind: kind.next }) }, icon(kind.icon, 's'), kind.word),
           el('span', { title: 'ワークスペース' }, icon('folder', 's'), workspacesOf(s)),
           el('span', { class: 'path', title: s.cwd }, s.cwd),
           s.worktree && el('span', { title: s.worktree.removed ? (s.worktree.keptBranch ? '作業用フォルダは片付け済み。変更はこのブランチに残っています' : '作業用フォルダは片付け済み') : `この作業専用のフォルダ（git worktree）。完了にするか片付けると自動で削除されます\n${s.worktree.path}` }, icon('branch', 's'), s.worktree.branch, s.worktree.removed ? '（片付け済み）' : ''),

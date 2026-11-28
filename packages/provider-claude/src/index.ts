@@ -308,26 +308,28 @@ export class ClaudeAdapter implements ProviderAdapter {
    */
   async readFinalReply(
     reply: string,
-    context: { background: string[] } = { background: [] },
+    context: { background: string[]; request?: string | null } = { background: [] },
   ): Promise<{
     agentContinues: boolean;
     questions: ReplyQuestion[];
     steps: { title: string; detail: string | null; command: string | null; after: string | null }[];
     look: LookReading | null;
+    report: boolean | null;
   } | null> {
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), 60_000);
     try {
       const q = query({
-        prompt: `<状況>\nいまバックグラウンドで動いている作業: ${context.background.length ? context.background.join(' / ') : 'なし'}\n</状況>\n<返答>\n${reply.slice(-8000)}\n</返答>\n\nJSON:`,
+        prompt: `<状況>\nいまバックグラウンドで動いている作業: ${context.background.length ? context.background.join(' / ') : 'なし'}\n</状況>\n<依頼>\n${context.request?.trim().slice(0, 2000) || '（不明）'}\n</依頼>\n<返答>\n${reply.slice(-8000)}\n</返答>\n\nJSON:`,
         options: {
           ...(this.helperOptions() as any),
           model: 'haiku',
           maxTurns: 1,
           abortController: ac,
           systemPrompt: [
-            'コーディングエージェントが返答を終えました。その返答<返答>を読み、作業がいまどういう状態で、人間に何が求められているかを抜き出します。出力はJSONだけです。',
-            `形式: {"agentContinues": true または false, ${QUESTIONS_SHAPE}, "steps": [{"title": "することを短く", "detail": "補足または null", "command": "実行するコマンドまたは null", "after": "先に済んでいる必要があること または null"}], "look": null または {"update": "rebuild" または "reload" または "none", "how": "変更を取り込むやり方 または null", "command": "そのためのコマンド または null", "checks": [{"what": "何がどうなっていればよいか", "where": "どの画面のどこを見るか または null"}], "unclear": ["返答だけでは分からないこと"]}}`,
+            'コーディングエージェントが、人間の<依頼>に対する返答を終えました。その返答<返答>を読み、作業がいまどういう状態で、人間に何が求められているかを抜き出します。出力はJSONだけです。',
+            `形式: {"report": true または false, "agentContinues": true または false, ${QUESTIONS_SHAPE}, "steps": [{"title": "することを短く", "detail": "補足または null", "command": "実行するコマンドまたは null", "after": "先に済んでいる必要があること または null"}], "look": null または {"update": "rebuild" または "reload" または "none", "how": "変更を取り込むやり方 または null", "command": "そのためのコマンド または null", "checks": [{"what": "何がどうなっていればよいか", "where": "どの画面のどこを見るか または null"}], "unclear": ["返答だけでは分からないこと"]}}`,
+            'report: <依頼>が、調べもの・質問・説明・比較・レビュー・相談・案出しのように「答えそのものを読みたい」ものなら true（返答の文章が成果物）。ファイルの編集・実装・修正・設定・コマンドの実行のように、エージェントが自分で手を動かして何かを変える依頼なら false。調べた上で直した・作った場合も false。<依頼>が「続けて」「OK」のように短くて判断できないときは、<返答>が調べた結果や答えを伝えるもの（何も変更していない）なら true、変更した作業の報告なら false。',
             'agentContinues: エージェント自身が、バックグラウンドで動かしているもの（テスト、ビルド、長い処理、サブエージェントなど）の終了を待っていて、「終わったら続きをやる／結果を報告する」としている場合だけ true。<状況>にバックグラウンドの作業があっても、開発サーバーや監視のように動かし続けるだけのものなら false。返答が作業の完了を報告している場合や、続きを人間に任せている場合も false。',
             QUESTIONS_RULES,
             'steps: 人間がやらないと作業が完了しないこと（コマンドの実行、アプリの再起動や入れ直し、PRのマージ、外部サービスでの設定、目視確認、デプロイなど）が残っていれば、実行する順に入れる。「〜してください」という依頼の形でなくても、「あとは〜を実行するだけです」「〜すると反映されます」「〜が必要です」のように、人間の手が要ると読み取れるなら入れる。command には返答に書かれているコマンドを一字一句そのまま入れる。',
@@ -375,7 +377,7 @@ export class ClaudeAdapter implements ProviderAdapter {
             unclear: (Array.isArray(lk.unclear) ? lk.unclear : []).map(str).filter((x: string | null): x is string => !!x).slice(0, 6),
           }
         : null;
-      return { agentContinues: j.agentContinues === true, questions, steps, look };
+      return { agentContinues: j.agentContinues === true, questions, steps, look, report: typeof j.report === 'boolean' ? j.report : null };
     } catch {
       return null;
     } finally {

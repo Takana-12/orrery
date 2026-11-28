@@ -36,6 +36,11 @@ export interface StartSessionInput {
    * its folder (or worktree) is where the agent starts, and its settings apply. These are used in place, no worktree.
    */
   extraProjectIds?: string[];
+  /**
+   * The schedule this work is a run of (application/schedules.ts; never taken from a request). Its own environment
+   * variables go with the work, also when it is resumed later.
+   */
+  scheduleId?: string;
   /** Provider-specific extras, passed through to the adapter untouched. */
   codex?: unknown;
   claude?: unknown;
@@ -124,6 +129,7 @@ export class Sessions {
       cwd: wt?.cwd,
       projectId: input.projectId,
       extraProjectIds: extras,
+      ...(input.scheduleId ? { scheduleId: input.scheduleId } : {}),
       provider: input.provider,
       title: given || input.prompt.trim().replace(/\s+/g, ' ').slice(0, 40),
       acceptanceCriteria: input.acceptanceCriteria ?? null,
@@ -176,9 +182,14 @@ export class Sessions {
       if (k.domains.length) said.push(`こだわり（${k.domains.join('、')}）`);
       if (also.length) said.push(`ほかのワークスペース（${also.map((p) => p.name).join('、')}）の場所`);
       if (said.length) journal.write(s.id, 'system', `${said.join('と')}を先頭に付けて送りました。${k.dropped ? `${k.dropped} セクションは、添付上限の5,000字まで送りました（保存した全文は残っています）。` : ''}`);
-      await rt.adapters[s.provider].startSession({ ...base, prompt: composeFirstMessage(preamble, input.prompt), shownPrompt: preamble ? input.prompt : undefined, env: secrets.envFor(s.projectId) });
+      await rt.adapters[s.provider].startSession({ ...base, prompt: composeFirstMessage(preamble, input.prompt), shownPrompt: preamble ? input.prompt : undefined, env: this.envOf(s) });
     });
     return s.id;
+  }
+
+  /** The environment the work's agent and commands get: its project's, plus its schedule's own when a schedule started it. */
+  private envOf(s: { projectId: string; scheduleId?: string }): Record<string, string> {
+    return s.scheduleId ? this.d.secrets.envForWork(s) : this.d.secrets.envFor(s.projectId);
   }
 
   /** The other workspaces a piece of work also works in (any removed since are left out). */
@@ -278,7 +289,7 @@ export class Sessions {
       }
       try {
         await this.d.workspaces.reopen(sessionId);
-        await adapter.startSession({ sessionId, cwd: s.cwd, prompt: text, readDirs: [this.d.attachmentsDir], extraDirs: this.alsoIn(s).map((p) => p.rootPath), resumeProviderSessionId: s.providerSessionId, model: s.model ?? s.requestedModel, effort, approvalMode: s.approvalMode, env: this.d.secrets.envFor(s.projectId) });
+        await adapter.startSession({ sessionId, cwd: s.cwd, prompt: text, readDirs: [this.d.attachmentsDir], extraDirs: this.alsoIn(s).map((p) => p.rootPath), resumeProviderSessionId: s.providerSessionId, model: s.model ?? s.requestedModel, effort, approvalMode: s.approvalMode, env: this.envOf(s) });
         effortApplied();
       } catch (e) {
         if (s.effort === effort && !this.deferred.has(sessionId)) rt.core.sessionUpdate(sessionId, { effort: previousEffort });
@@ -391,7 +402,7 @@ export class Sessions {
     if (stepIndex >= 0 && t?.humanSteps?.some((x) => x.run && x.run.phase !== 'settled')) throw new HttpError(409, 'この作業では、別のコマンドを実行しているか、その結果を読んでいるところです');
     const id = typeof runId === 'string' && /^[\w-]{6,64}$/.test(runId) ? runId : randomBytes(8).toString('hex');
     const forStep = stepIndex >= 0 && rt.core.humanStepRan(sessionId, stepIndex, cmd, id);
-    const r = await runCommand(cmd, s.cwd, this.d.secrets.envFor(s.projectId));
+    const r = await runCommand(cmd, s.cwd, this.envOf(s));
     const output = this.d.secrets.redact(r.outputTail);
     this.d.journal.write(sessionId, 'system', `あなたが実行: ${cmd}（終了コード ${r.exitCode ?? '不明'}）\n${output}`);
     if (!forStep) return { ok: r.ok, exitCode: r.exitCode, output, step: null };

@@ -38,7 +38,7 @@ export const toggle = (label, onchange, checked = false) => {
   return t;
 };
 /** One of a few: buttons side by side, the chosen one raised. */
-function segmented(label, options, value, onpick) {
+export function segmented(label, options, value, onpick) {
   const box = el('div', { class: 'seg', role: 'radiogroup', 'aria-label': label });
   const paint = (v) => { for (const b of box.children) b.setAttribute('aria-checked', String(b.dataset.v === v)); };
   for (const o of options) box.append(el('button', { type: 'button', role: 'radio', 'data-v': o.value, onclick: () => { paint(o.value); onpick(o.value); } }, o.label));
